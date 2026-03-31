@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: axd
+          POSTGRES_PASSWORD: axd_test
+          POSTGRES_DB: axd_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - run: npx prisma generate
+
+      - name: Run migrations
+        run: npx prisma migrate deploy
+        env:
+          DATABASE_URL: postgresql://axd:axd_test@localhost:5432/axd_test
+
+      - name: TypeScript check
+        run: npx tsc --noEmit
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Tests
+        run: npm test
+        env:
+          DATABASE_URL: postgresql://axd:axd_test@localhost:5432/axd_test
+          REDIS_URL: redis://localhost:6379
+          GITHUB_APP_ID: "1"
+          GITHUB_APP_PRIVATE_KEY: "test-key"
+          GITHUB_WEBHOOK_SECRET: "test-secret"
+          ANTHROPIC_API_KEY: "test-key"
+          NODE_ENV: test

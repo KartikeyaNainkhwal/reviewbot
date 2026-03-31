@@ -1,0 +1,38 @@
+{
+    "action": "opened",
+    "number": 42,
+    "pull_request": {
+        "number": 42,
+        "title": "Add user authentication",
+        "body": "Implements JWT-based authentication middleware",
+        "head": {
+            "sha": "abc123def456",
+            "ref": "feature/auth"
+        },
+        "base": {
+            "sha": "789xyz000111",
+            "ref": "main"
+        },
+        "user": {
+            "login": "developer",
+            "type": "User"
+        },
+        "draft": false,
+        "changed_files": 3,
+        "additions": 120,
+        "deletions": 5
+    },
+    "repository": {
+        "id": 12345,
+        "full_name": "owner/repo",
+        "default_branch": "main",
+        "language": "TypeScript"
+    },
+    "installation": {
+        "id": 67890
+    },
+    "sender": {
+        "login": "developer",
+        "type": "User"
+    }
+}
