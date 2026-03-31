@@ -1,9 +1,16 @@
 import { prisma } from '../db/client';
 import { logger } from '../config/logger';
 
-// Approximate pricing for Claude Sonnet (per 1M tokens) — update as needed
-const PRICE_PER_1M_INPUT_TOKENS = 3.0;
-const PRICE_PER_1M_OUTPUT_TOKENS = 15.0;
+// Approximate pricing for Grok (per 1M tokens) — update as needed
+const PRICE_PER_1M_INPUT_TOKENS = 2.0;
+const PRICE_PER_1M_OUTPUT_TOKENS = 10.0;
+
+export interface UsageTotals {
+    reviewCount: number;
+    promptTokens: number;
+    completionTokens: number;
+    estimatedCostUsd: number;
+}
 
 class UsageService {
     /**
@@ -66,7 +73,7 @@ class UsageService {
             orderBy: { date: 'asc' },
         });
 
-        const totals = records.reduce(
+        const totals = records.reduce<UsageTotals>(
             (acc, r) => ({
                 reviewCount: acc.reviewCount + r.reviewCount,
                 promptTokens: acc.promptTokens + r.totalPromptTokens,
