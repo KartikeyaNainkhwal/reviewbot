@@ -1,4 +1,4 @@
-import { callClaude, type CallClaudeResult } from './client';
+import { callGrok, type CallLLMResult } from './client';
 import { getSystemPrompt, buildReviewPrompt, buildRepairPrompt, type PRContext, type RepoReviewConfig } from './prompts';
 import type { ReviewableChunk } from '../types/diff.types';
 import type { LLMReviewResponse, ReviewIssue } from '../types/review.types';
@@ -24,7 +24,7 @@ export interface ReviewOutput {
     /** Token usage */
     totalPromptTokens: number;
     totalCompletionTokens: number;
-    /** Number of Claude calls made (including retries) */
+    /** Number of Grok calls made (including retries) */
     totalAttempts: number;
 }
 
@@ -39,11 +39,11 @@ const VERDICT_PRIORITY: Record<LLMReviewResponse['overallVerdict'], number> = {
 // ─── Main entry point ───────────────────────────────────────────────────
 
 /**
- * Review one or more diff chunks using Claude.
+ * Review one or more diff chunks using Grok.
  *
  * For each chunk:
  *   1. Builds the full prompt (system + user)
- *   2. Calls Claude with retry/repair logic
+ *   2. Calls Grok with retry/repair logic
  *   3. Collects and merges results
  *
  * Returns aggregated issues, comments, summary, and verdict.
@@ -82,7 +82,7 @@ export async function reviewChunks(
 
             const userPrompt = buildReviewPrompt(chunk, prContext, repoConfig, fileContexts);
 
-            const result = await callClaude(
+            const result = await callGrok(
                 systemPrompt,
                 userPrompt,
                 buildRepairPrompt,

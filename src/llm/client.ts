@@ -1,17 +1,18 @@
-import Anthropic from '@anthropic-ai/sdk';
+import OpenAI from 'openai';
 import { env } from '../config/env';
 import { logger } from '../config/logger';
 import { LLMReviewResponseSchema, type LLMReviewResponse } from '../types/review.types';
 
 // ─── Client singleton ───────────────────────────────────────────────────
 
-let client: Anthropic | null = null;
+let client: OpenAI | null = null;
 
-function getClient(): Anthropic {
+function getClient(): OpenAI {
     if (client) return client;
-    client = new Anthropic({
-        apiKey: env.ANTHROPIC_API_KEY,
-        timeout: env.ANTHROPIC_TIMEOUT_MS,
+    client = new OpenAI({
+        apiKey: env.XAI_API_KEY,
+        baseURL: 'https://api.x.ai/v1',
+        timeout: env.XAI_TIMEOUT_MS,
         maxRetries: 0,  // We handle retries ourselves for JSON repair logic
     });
     return client;
@@ -19,7 +20,7 @@ function getClient(): Anthropic {
 
 // ─── Types ──────────────────────────────────────────────────────────────
 
-export interface CallClaudeResult {
+export interface CallLLMResult {
     response: LLMReviewResponse;
     promptTokens: number;
     completionTokens: number;
@@ -60,27 +61,27 @@ export class LLMCallError extends Error {
     }
 }
 
-// ─── Core: callClaude ───────────────────────────────────────────────────
+// ─── Core: callGrok ───────────────────────────────────────────────────
 
 const MAX_RETRIES = 3;
 const BASE_DELAY_MS = 1000;
 const MAX_DELAY_MS = 15000;
 
 /**
- * Call Claude with the review prompt. Handles:
+ * Call Grok with the review prompt. Handles:
  *  1. Exponential backoff retries (3x) for transient API errors
  *  2. JSON parsing with markdown fence stripping
  *  3. Zod schema validation
- *  4. On parse failure: sends a repair prompt to Claude for self-correction
+ *  4. On parse failure: sends a repair prompt to Grok for self-correction
  *  5. Comprehensive token usage logging
  *
  * Returns validated LLMReviewResponse or throws after all retries exhausted.
  */
-export async function callClaude(
+export async function callGrok(
     systemPrompt: string,
     userPrompt: string,
     repairPromptBuilder?: (malformed: string, error: string) => string,
-): Promise<CallClaudeResult> {
+): Promise<CallLLMResult> {
     const overallStart = Date.now();
     let totalPromptTokens = 0;
     let totalCompletionTokens = 0;
@@ -89,9 +90,9 @@ export async function callClaude(
 
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
         try {
-            // ── Step 1: Call Claude API ────────────────────────────────
+            // ── Step 1: Call Grok API ────────────────────────────────
 
-            const raw = await callClaudeRaw(systemPrompt, userPrompt);
+            const raw = await callGrokRaw(systemPrompt, userPrompt);
             totalPromptTokens += raw.promptTokens;
             totalCompletionTokens += raw.completionTokens;
             lastModel = raw.model;
@@ -104,7 +105,7 @@ export async function callClaude(
                     completionTokens: raw.completionTokens,
                     latencyMs: raw.latencyMs,
                 },
-                'Claude API call completed',
+                'Grok API call completed',
             );
 
             // ── Step 2: Parse JSON ────────────────────────────────────
@@ -131,12 +132,12 @@ export async function callClaude(
             if (error instanceof LLMParseError && repairPromptBuilder && attempt < MAX_RETRIES) {
                 logger.warn(
                     { attempt, error: error.message },
-                    'Claude returned invalid JSON, sending repair prompt',
+                    'Grok returned invalid JSON, sending repair prompt',
                 );
 
                 try {
                     const repairPrompt = repairPromptBuilder(error.rawContent, error.message);
-                    const repairResult = await callClaudeRaw(systemPrompt, repairPrompt);
+                    const repairResult = await callGrokRaw(systemPrompt, repairPrompt);
                     totalPromptTokens += repairResult.promptTokens;
                     totalCompletionTokens += repairResult.completionTokens;
                     lastModel = repairResult.model;
@@ -162,7 +163,7 @@ export async function callClaude(
             // ── API error: check if retryable ─────────────────────────
 
             if (error instanceof LLMCallError && !error.isRetryable) {
-                logger.error({ err: error, attempt }, 'Non-retryable Claude API error');
+                logger.error({ err: error, attempt }, 'Non-retryable Grok API error');
                 throw error;
             }
 
@@ -175,7 +176,7 @@ export async function callClaude(
                 );
                 logger.warn(
                     { attempt, delayMs: delay, error: (error as Error).message },
-                    'Retrying Claude call after delay',
+                    'Retrying Grok call after delay',
                 );
                 await sleep(delay);
             }
@@ -191,7 +192,7 @@ export async function callClaude(
             totalCompletionTokens,
             lastError: lastError?.message,
         },
-        'All Claude retry attempts exhausted',
+        'All Grok retry attempts exhausted',
     );
 
     throw lastError ?? new LLMCallError('Unknown error after all retries');
@@ -199,29 +200,29 @@ export async function callClaude(
 
 // ─── Raw API call ───────────────────────────────────────────────────────
 
-async function callClaudeRaw(
+async function callGrokRaw(
     systemPrompt: string,
     userPrompt: string,
 ): Promise<RawLLMResult> {
-    const anthropic = getClient();
+    const openai = getClient();
     const start = Date.now();
 
     try {
-        const response = await anthropic.messages.create({
-            model: env.ANTHROPIC_MODEL,
-            max_tokens: env.ANTHROPIC_MAX_TOKENS,
-            system: systemPrompt,
-            messages: [{ role: 'user', content: userPrompt }],
+        const response = await openai.chat.completions.create({
+            model: env.XAI_MODEL,
+            max_tokens: env.XAI_MAX_TOKENS,
+            messages: [
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: userPrompt }
+            ]
         });
 
-        const content = response.content[0]?.type === 'text'
-            ? response.content[0].text
-            : '';
+        const content = response.choices[0]?.message?.content || '';
 
         return {
             content,
-            promptTokens: response.usage.input_tokens,
-            completionTokens: response.usage.output_tokens,
+            promptTokens: response.usage?.prompt_tokens || 0,
+            completionTokens: response.usage?.completion_tokens || 0,
             model: response.model,
             latencyMs: Date.now() - start,
         };
@@ -239,11 +240,11 @@ async function callClaudeRaw(
 
         logger.error(
             { statusCode, latencyMs, errorType: err.error?.type },
-            'Claude API request failed',
+            'Grok API request failed',
         );
 
         throw new LLMCallError(
-            err.message ?? 'Claude API call failed',
+            err.message ?? 'Grok API call failed',
             statusCode,
             isRetryable,
         );
@@ -253,12 +254,12 @@ async function callClaudeRaw(
 // ─── Response parsing ───────────────────────────────────────────────────
 
 /**
- * Parse Claude's string output into JSON, stripping any markdown fences.
+ * Parse Grok's string output into JSON, stripping any markdown fences.
  */
 function parseResponse(raw: string): unknown {
     let cleaned = raw.trim();
 
-    // Strip markdown code fences (Claude sometimes adds them despite instructions)
+    // Strip markdown code fences (LLMs sometimes add them despite instructions)
     if (cleaned.startsWith('```json')) {
         cleaned = cleaned.slice(7);
     } else if (cleaned.startsWith('```')) {
@@ -274,7 +275,7 @@ function parseResponse(raw: string): unknown {
     if (jsonStart > 0) {
         logger.debug(
             { prefixLength: jsonStart },
-            'Stripping non-JSON prefix from Claude response',
+            'Stripping non-JSON prefix from Grok response',
         );
         cleaned = cleaned.slice(jsonStart);
     }
@@ -306,7 +307,7 @@ function validateResponse(parsed: unknown): LLMReviewResponse {
             .map((i) => `${i.path.join('.')}: ${i.message}`)
             .join('; ');
 
-        logger.warn({ issues }, 'Claude response failed Zod validation');
+        logger.warn({ issues }, 'Grok response failed Zod validation');
 
         throw new LLMParseError(
             `Schema validation failed: ${issues}`,

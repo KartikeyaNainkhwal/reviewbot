@@ -5,7 +5,7 @@
 ### AI-Powered Code Review for GitHub Pull Requests
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-6.0-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![Claude](https://img.shields.io/badge/Claude_Sonnet_4-Anthropic-D4A574?style=for-the-badge&logo=anthropic&logoColor=white)](https://anthropic.com)
+[![Grok](https://img.shields.io/badge/Grok_2_Latest-xAI-000000?style=for-the-badge&logo=x&logoColor=white)](https://x.ai)
 [![GitHub App](https://img.shields.io/badge/GitHub_App-181717?style=for-the-badge&logo=github&logoColor=white)](https://docs.github.com/en/apps)
 [![License: MIT](https://img.shields.io/badge/License-MIT-22C55E?style=for-the-badge)](LICENSE)
 
@@ -102,8 +102,8 @@ GITHUB_APP_ID=123456
 GITHUB_APP_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\n..."
 GITHUB_WEBHOOK_SECRET=your-webhook-secret
 
-# Anthropic Claude
-ANTHROPIC_API_KEY=sk-ant-api03-...
+# xAI Grok
+XAI_API_KEY=xai-xxxxxxxxxxxxx
 
 # Infrastructure
 DATABASE_URL=postgresql://user:pass@localhost:5432/axd
@@ -147,7 +147,7 @@ ignore_paths:
   - "docs/**"
   - ".github/**"
 
-# Team-specific rules (injected into Claude's prompt)
+# Team-specific rules (injected into Grok's prompt)
 custom_rules:
   - "Always check for SQL injection in any database query"
   - "Enforce async/await over .then() chains"
@@ -160,7 +160,7 @@ severity_threshold: medium    # critical | high | medium | low
 # Auto-approve clean PRs?
 auto_approve_if_no_issues: true
 
-# Your stack (helps Claude understand context)
+# Your stack (helps Grok understand context)
 language_hints:
   primary: typescript
   frameworks: [express, prisma, react]
@@ -199,8 +199,8 @@ max_files_per_review: 25
                     │    └───────────┘   │ 4. Review    │  │          │     │
                     │                    │ 5. Post      │──┘          │     │
                     │    ┌───────────┐   │              │             │     │
-                    │    │  Claude   │◄──│              │─────────────┘     │
-                    │    │  Sonnet   │──►│              │                   │
+                    │    │   Grok    │◄──│              │─────────────┘     │
+                    │    │     2     │──►│              │                   │
                     │    └───────────┘   └──────┬───────┘                   │
                     │                           │                           │
                     │    ┌───────────┐   ┌──────▼───────┐                   │
@@ -224,7 +224,7 @@ Webhook received
         ├─► 3. Parse unified diff (line numbers preserved)
         ├─► 4. Filter files (respect .prbot.yml ignore_paths)
         ├─► 5. Chunk into ≤80k token batches (priority: security > core > tests)
-        ├─► 6. Send to Claude with system prompt + repo rules
+        ├─► 6. Send to Grok with system prompt + repo rules
         │      └─► Retry 3x with exponential backoff (1s → 2s → 4s)
         │      └─► Auto-repair malformed JSON responses
         ├─► 7. Validate response with Zod schema
@@ -262,7 +262,7 @@ src/
 │
 ├── llm/                    # LLM engine
 │   ├── prompts.ts          # System prompt + user prompt builder
-│   ├── client.ts           # Claude API with retries + JSON repair
+│   ├── client.ts           # Grok API with retries + JSON repair
 │   ├── parser.ts           # Response parsing + Zod validation
 │   └── reviewer.ts         # Multi-chunk review orchestrator
 │
@@ -358,7 +358,7 @@ When AXD reviews a PR, it posts:
 |-----------|------------|-----|
 | **Runtime** | Node.js 20+ | Async-first, excellent GitHub SDK support |
 | **Language** | TypeScript 6 | End-to-end type safety, Zod schema validation |
-| **AI Model** | Claude claude-sonnet-4-6 | Best code understanding, structured JSON output |
+| **AI Model** | Grok grok-2-latest | Best code understanding, structured JSON output |
 | **Web Framework** | Express 5 | Lightweight, middleware ecosystem |
 | **Database** | PostgreSQL + Prisma 7 | Relational data, type-safe ORM, migrations |
 | **Queue** | BullMQ + Redis | Decouples webhook from slow LLM calls, retries |
@@ -431,7 +431,7 @@ docker run -p 3000:3000 --env-file .env axd
 - [x] GitHub webhook handler with signature verification
 - [x] Diff parser with line-level tracking
 - [x] Token-aware chunking with priority classification
-- [x] Claude integration with retry + JSON repair
+- [x] Grok integration with retry + JSON repair
 - [x] Per-repo configuration via `.prbot.yml`
 - [x] Atomic PR review posting (one review, not comment spam)
 - [x] Comment update on re-push (no spam)

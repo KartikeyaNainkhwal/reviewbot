@@ -27,7 +27,7 @@ export interface RepoReviewConfig {
 
 /**
  * The system prompt is fixed across ALL reviews.
- * It defines who Claude is, what it prioritizes, and what format to use.
+ * It defines who the Assistant is, what it prioritizes, and what format to use.
  */
 export function getSystemPrompt(): string {
     return `You are a principal-level software engineer conducting a rigorous code review on a GitHub Pull Request. You have 15+ years of experience shipping production systems and have deep expertise in security, distributed systems, and software design.
@@ -252,7 +252,7 @@ export function buildReviewPrompt(
 // ─── JSON Repair Prompt ─────────────────────────────────────────────────
 
 /**
- * Follow-up prompt when Claude returns malformed JSON.
+ * Follow-up prompt when the LLM returns malformed JSON.
  */
 export function buildRepairPrompt(malformedResponse: string, error: string): string {
     return `Your previous response was not valid JSON. Here's the error:

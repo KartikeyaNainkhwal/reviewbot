@@ -11,11 +11,11 @@ const envSchema = z.object({
     GITHUB_CLIENT_ID: z.string().optional(),
     GITHUB_CLIENT_SECRET: z.string().optional(),
 
-    // Anthropic
-    ANTHROPIC_API_KEY: z.string().min(1, 'ANTHROPIC_API_KEY is required'),
-    ANTHROPIC_MODEL: z.string().default('claude-sonnet-4-6'),
-    ANTHROPIC_MAX_TOKENS: z.coerce.number().int().positive().default(4096),
-    ANTHROPIC_TIMEOUT_MS: z.coerce.number().int().positive().default(120000),
+    // X.AI (Grok)
+    XAI_API_KEY: z.string().min(1, 'XAI_API_KEY is required'),
+    XAI_MODEL: z.string().default('grok-2-latest'),
+    XAI_MAX_TOKENS: z.coerce.number().int().positive().default(4096),
+    XAI_TIMEOUT_MS: z.coerce.number().int().positive().default(120000),
 
     // Database
     DATABASE_URL: z.string().url('DATABASE_URL must be a valid URL'),
