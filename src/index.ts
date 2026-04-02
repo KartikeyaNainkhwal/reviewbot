@@ -1,6 +1,7 @@
 import express from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
+import * as Sentry from '@sentry/node';
 import { env } from './config/env.js';
 import { logger } from './config/logger.js';
 import { router } from './api/router.js';
@@ -12,6 +13,16 @@ import { closeRedis } from './config/redis.js';
 import { prisma } from './db/client.js';
 
 function main() {
+    // ─── Initialize Sentry ────────────────────────────────────────────
+    if (env.SENTRY_DSN) {
+        Sentry.init({
+            dsn: env.SENTRY_DSN,
+            environment: env.NODE_ENV,
+            tracesSampleRate: 1.0,
+        });
+        logger.info('Sentry initialized');
+    }
+
     const app = express();
 
     // ─── Security headers ─────────────────────────────────────────────
@@ -37,6 +48,11 @@ function main() {
     // ─── GitLab webhook endpoint ──────────────────────────────────────
     // Uses standard JSON body (no HMAC), so it's mounted after express.json()
     app.use('/api/gitlab/webhooks', gitlabWebhookRouter);
+
+    // ─── Sentry Error Handler ─────────────────────────────────────────
+    if (env.SENTRY_DSN) {
+        Sentry.setupExpressErrorHandler(app);
+    }
 
     // ─── Start the background review worker ───────────────────────────
     startReviewWorker();
