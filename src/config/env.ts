@@ -11,11 +11,14 @@ const envSchema = z.object({
     GITHUB_CLIENT_ID: z.string().optional(),
     GITHUB_CLIENT_SECRET: z.string().optional(),
 
-    // X.AI (Grok)
-    XAI_API_KEY: z.string().min(1, 'XAI_API_KEY is required'),
-    XAI_MODEL: z.string().default('grok-2-latest'),
-    XAI_MAX_TOKENS: z.coerce.number().int().positive().default(4096),
-    XAI_TIMEOUT_MS: z.coerce.number().int().positive().default(120000),
+    // LLM Provider
+    LLM_PROVIDER: z.enum(['groq', 'claude']).default('groq'),
+
+    // Groq (LLM)
+    GROQ_API_KEY: z.string().min(1, 'GROQ_API_KEY is required'),
+    GROQ_MODEL: z.string().default('llama-3.3-70b-versatile'),
+    GROQ_MAX_TOKENS: z.coerce.number().int().positive().default(4096),
+    GROQ_TIMEOUT_MS: z.coerce.number().int().positive().default(120000),
 
     // Database
     DATABASE_URL: z.string().url('DATABASE_URL must be a valid URL'),
@@ -39,6 +42,7 @@ const envSchema = z.object({
     MAX_REVIEWS_PER_HOUR_PER_INSTALL: z.coerce.number().int().positive().default(30),
 
     // Optional
+    API_KEY: z.string().min(1).optional(),
     SENTRY_DSN: z.string().url().optional(),
 });
 

@@ -1,54 +1,51 @@
 import { z } from 'zod';
 
 // ═══════════════════════════════════════════════════════════════════════
-// .prbot.yml — The YAML file teams drop in their repo root
+// .axdreview.yml — The YAML file teams drop in their repo root
 // ═══════════════════════════════════════════════════════════════════════
 //
-// Example .prbot.yml:
+// Example .axdreview.yml:
 //
 // ```yaml
 // # What areas should the bot focus on?
 // review_focus:
 //   - security
 //   - performance
-//   - error-handling
+//   - logic
+//   - bugs
 //
-// # Which paths should be skipped?
+// # Which paths should be skipped? (glob patterns, matched by micromatch)
 // ignore_paths:
-//   - "**/*.test.ts"
-//   - "**/*.spec.ts"
-//   - "docs/**"
-//   - "scripts/**"
-//   - ".github/**"
-//
-// # Plain English rules injected into the Claude prompt
-// custom_rules:
-//   - "Always check for SQL injection in any database query"
-//   - "Enforce async/await over .then() chains"
-//   - "All API endpoints must validate request body with Zod"
-//   - "Never commit console.log — use the logger instead"
-//   - "Check that all new API routes have rate limiting"
+//   - "*.lock"
+//   - "package-lock.json"
+//   - "dist/**"
+//   - "*.generated.ts"
+//   - "migrations/**"
 //
 // # Minimum severity to post as a comment (critical > high > medium > low)
-// severity_threshold: medium
+// severity_threshold: "low"
 //
 // # If the bot finds zero issues, should it auto-approve?
-// auto_approve_if_no_issues: true
+// auto_approve_if_clean: false
+//
+// # Plain English rules injected into the LLM prompt
+// custom_rules:
+//   - "Always check for SQL injection in raw queries"
+//   - "Ensure all async functions have try/catch"
+//
+// # Stack hints for better context
+// language_hints:
+//   - "typescript"
+//   - "nodejs"
+//
+// # Custom bot display name
+// bot_name: "AXD Bot"
 //
 // # Triggers: which PR events should trigger a review?
 // review_on:
 //   - opened
 //   - synchronize
 //   - reopened
-//
-// # Stack hints for better context
-// language_hints:
-//   primary: typescript
-//   frameworks:
-//     - express
-//     - prisma
-//     - react
-//   runtime: node
 //
 // # Limits
 // max_files_per_review: 25
@@ -61,6 +58,7 @@ export const ReviewFocusEnum = z.enum([
     'security',
     'performance',
     'bugs',
+    'logic',
     'error-handling',
     'testing',
     'accessibility',
@@ -94,7 +92,7 @@ export const RepoConfigSchema = z.object({
     // Review focus areas
     review_focus: z.array(ReviewFocusEnum).default(['security', 'bugs', 'performance']),
 
-    // Glob patterns to skip
+    // Glob patterns to skip (matched via micromatch)
     ignore_paths: z.array(z.string()).default([
         '*.lock',
         '*.generated.*',
@@ -111,25 +109,37 @@ export const RepoConfigSchema = z.object({
         'node_modules/**',
         '.next/**',
         'coverage/**',
+        'migrations/**',
     ]),
 
-    // Plain English rules injected into Claude prompt
+    // Plain English rules injected into LLM prompt
     custom_rules: z.array(z.string().max(500)).max(20).default([]),
 
     // Minimum severity to post
-    severity_threshold: SeverityThresholdEnum.default('medium'),
+    severity_threshold: SeverityThresholdEnum.default('low'),
 
     // Auto-approve if no issues found
+    auto_approve_if_clean: z.boolean().default(false),
+
+    // Legacy compat alias
     auto_approve_if_no_issues: z.boolean().default(false),
 
     // Which PR events trigger review
     review_on: z.array(TriggerActionEnum).default(['opened', 'synchronize']),
 
     // Stack hints for better LLM context
-    language_hints: LanguageHintsSchema,
+    language_hints: z.union([
+        // New simplified format: just an array of strings
+        z.array(z.string()),
+        // Legacy object format
+        LanguageHintsSchema,
+    ]).default(['typescript', 'nodejs']),
+
+    // Custom bot display name
+    bot_name: z.string().max(50).default('AXD Bot'),
 
     // Limits
-    max_files_per_review: z.number().int().positive().max(50).default(25),
+    max_files_per_review: z.number().int().positive().max(100).default(25),
     max_diff_lines: z.number().int().positive().max(10000).default(3000),
 
     // Legacy compat fields (mapped internally)
@@ -138,7 +148,7 @@ export const RepoConfigSchema = z.object({
     autoReviewEnabled: z.boolean().default(true),
     customInstructions: z.string().optional(),
     maxFilesPerReview: z.number().int().positive().optional(),
-    severityThreshold: z.enum(['critical', 'warning', 'suggestion', 'nitpick']).optional(),
+    severityThreshold: SeverityThresholdEnum.optional(),
 });
 
 export type RepoConfig = z.infer<typeof RepoConfigSchema>;
@@ -151,9 +161,10 @@ export const DEFAULT_REPO_CONFIG: RepoConfig = RepoConfigSchema.parse({});
 
 /**
  * Convert a RepoConfig into a prompt-ready string for injection
- * into the Claude system/user prompt.
+ * into the LLM system/user prompt.
  *
- * This is how custom_rules get into the LLM naturally.
+ * This is how custom_rules, review_focus, severity_threshold,
+ * and language_hints naturally flow into the AI's instructions.
  */
 export function configToPromptContext(config: RepoConfig): string {
     const sections: string[] = [];
@@ -166,10 +177,11 @@ export function configToPromptContext(config: RepoConfig): string {
         );
     }
 
-    // Custom rules
+    // Custom rules  — the most powerful feature!
+    // These are plain-English rules the team wrote specifically for their codebase.
     if (config.custom_rules.length > 0) {
         sections.push(
-            '**Team-Specific Rules** (enforce these strictly):\n' +
+            '**Team-Specific Rules** (enforce these strictly — the team explicitly asked for these checks):\n' +
             config.custom_rules.map((r, i) => `${i + 1}. ${r}`).join('\n'),
         );
     }
@@ -180,16 +192,27 @@ export function configToPromptContext(config: RepoConfig): string {
     );
 
     // Language hints
-    if (config.language_hints.primary || config.language_hints.frameworks.length > 0) {
+    const hints = config.language_hints;
+    if (Array.isArray(hints) && hints.length > 0) {
+        // New simplified format: string[]
+        if (typeof hints[0] === 'string') {
+            sections.push(
+                '**Stack Context:**\n' +
+                (hints as string[]).map((h) => `- ${h}`).join('\n'),
+            );
+        }
+    } else if (hints && typeof hints === 'object' && !Array.isArray(hints)) {
+        // Legacy object format
+        const objHints = hints as LanguageHints;
         const parts: string[] = ['**Stack Context:**'];
-        if (config.language_hints.primary) {
-            parts.push(`- Primary language: ${config.language_hints.primary}`);
+        if (objHints.primary) {
+            parts.push(`- Primary language: ${objHints.primary}`);
         }
-        if (config.language_hints.runtime) {
-            parts.push(`- Runtime: ${config.language_hints.runtime}`);
+        if (objHints.runtime) {
+            parts.push(`- Runtime: ${objHints.runtime}`);
         }
-        if (config.language_hints.frameworks.length > 0) {
-            parts.push(`- Frameworks: ${config.language_hints.frameworks.join(', ')}`);
+        if (objHints.frameworks.length > 0) {
+            parts.push(`- Frameworks: ${objHints.frameworks.join(', ')}`);
         }
         sections.push(parts.join('\n'));
     }
@@ -203,6 +226,7 @@ const FOCUS_DESCRIPTIONS: Record<ReviewFocus, string> = {
     'security': 'Security vulnerabilities (injection, auth bypass, data exposure)',
     'performance': 'Performance issues (N+1 queries, memory leaks, O(n²) algorithms)',
     'bugs': 'Logic bugs, null access, off-by-one errors, race conditions',
+    'logic': 'Logic errors, wrong control flow, incorrect business rules',
     'error-handling': 'Missing error handling, swallowed exceptions, uncaught promises',
     'testing': 'Test coverage gaps, fragile tests, missing edge case tests',
     'accessibility': 'Accessibility issues (ARIA, keyboard nav, color contrast)',

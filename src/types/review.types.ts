@@ -5,7 +5,7 @@ import { z } from 'zod';
 export const IssueSeverityEnum = z.enum(['critical', 'high', 'medium', 'low']);
 export type IssueSeverity = z.infer<typeof IssueSeverityEnum>;
 
-export const IssueTypeEnum = z.enum(['bug', 'security', 'performance', 'logic', 'style']);
+export const IssueTypeEnum = z.enum(['bug', 'security', 'performance', 'logic', 'style', 'types']);
 export type IssueType = z.infer<typeof IssueTypeEnum>;
 
 export const VerdictEnum = z.enum(['approve', 'request_changes', 'comment']);
@@ -26,6 +26,7 @@ export const ReviewIssueSchema = z.object({
     description: z.string().min(1),
     suggestion: z.string().min(1),
     codeSnippet: z.string().optional(),
+    suggestionCode: z.string().optional(),
 });
 
 export type ReviewIssue = z.infer<typeof ReviewIssueSchema>;
@@ -67,6 +68,7 @@ export function issuesToComments(issues: ReviewIssue[]): LLMComment[] {
         performance: 'performance',
         logic: 'logic',
         style: 'style',
+        types: 'style',
     };
 
     return issues.map((issue) => ({

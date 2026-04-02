@@ -1,5 +1,6 @@
 import { Octokit } from '@octokit/rest';
 import yaml from 'js-yaml';
+import micromatch from 'micromatch';
 import {
     RepoConfigSchema,
     DEFAULT_REPO_CONFIG,
@@ -12,10 +13,12 @@ import { logger } from '../config/logger.js';
 // ─── Config file locations (checked in order) ───────────────────────────
 
 const CONFIG_FILE_PATHS = [
-    '.prbot.yml',
-    '.prbot.yaml',
-    '.github/prbot.yml',
-    '.github/prbot.yaml',
+    '.axdreview.yml',
+    '.axdreview.yaml',
+    '.prbot.yml',        // legacy compat
+    '.prbot.yaml',       // legacy compat
+    '.github/axdreview.yml',
+    '.github/prbot.yml', // legacy compat
 ];
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -24,16 +27,18 @@ const CONFIG_FILE_PATHS = [
 
 class ConfigService {
     /**
-     * Fetch and parse the repo's `.prbot.yml` config.
+     * Fetch and parse the repo's `.axdreview.yml` config.
      *
      * Resolution order:
-     *  1. Try fetching `.prbot.yml` (or .yaml) from the repo at the given ref
-     *  2. If not found, check `.github/prbot.yml`
+     *  1. Try fetching `.axdreview.yml` (or .yaml / .prbot.yml) from the repo at the given ref
+     *  2. If not found, check `.github/axdreview.yml`
      *  3. If no file exists, fall back to DB config (set via dashboard)
      *  4. If nothing in DB, use sensible defaults
      *
      * DB config and YAML are merged: YAML wins for any overlapping fields,
      * but DB fields not present in YAML are preserved.
+     *
+     * **Never throws** — always returns a valid config.
      */
     async parseRepoConfig(
         octokit: Octokit,
@@ -49,7 +54,7 @@ class ConfigService {
         let dbConfig: Partial<RepoConfig> = {};
         if (dbRepoId) {
             try {
-                const repoRecord = await repositoryRepo.findByGithubId(0); // Will use actual ID
+                const repoRecord = await repositoryRepo.findByGithubId(parseInt(dbRepoId, 10));
                 if (repoRecord?.config && typeof repoRecord.config === 'object') {
                     dbConfig = repoRecord.config as Partial<RepoConfig>;
                 }
@@ -103,10 +108,51 @@ class ConfigService {
         return configToPromptContext(config);
     }
 
+    // ═══════════════════════════════════════════════════════════════════
+    // File Filtering (glob matching via micromatch)
+    // ═══════════════════════════════════════════════════════════════════
+
+    /**
+     * Check if a file should be ignored based on the repo's `ignore_paths` globs.
+     *
+     * Uses micromatch for glob matching, supporting patterns like:
+     *   - `*.lock`           — matches any lock file
+     *   - `dist/**`          — matches anything inside dist/
+     *   - `*.generated.ts`   — matches specific generated files
+     *   - `migrations/**`    — matches migration files
+     *   - `!src/important.ts` — negation: force-include a file
+     *
+     * @param filename      - The file path from the diff (e.g., "src/auth/login.ts")
+     * @param ignorePatterns - Array of glob patterns from .axdreview.yml
+     * @returns true if the file should be skipped
+     */
+    shouldIgnoreFile(filename: string, ignorePatterns: string[]): boolean {
+        if (ignorePatterns.length === 0) return false;
+
+        return micromatch.isMatch(filename, ignorePatterns, {
+            dot: true,           // match dotfiles
+            basename: true,      // allow matching against basename only (e.g., "*.lock")
+        });
+    }
+
+    /**
+     * Filter a list of filenames, removing any that match ignore patterns.
+     *
+     * @returns Only the filenames that should be reviewed
+     */
+    filterFiles(filenames: string[], ignorePatterns: string[]): string[] {
+        if (ignorePatterns.length === 0) return filenames;
+
+        return filenames.filter((f) => !this.shouldIgnoreFile(f, ignorePatterns));
+    }
+
     // ─── Private helpers ────────────────────────────────────────────────
 
     /**
-     * Fetch `.prbot.yml` from the repo via GitHub API.
+     * Fetch `.axdreview.yml` from the repo via GitHub API.
+     *
+     * Tries multiple file paths in order. Returns null if no config found.
+     * Never throws — invalid/missing files return null gracefully.
      */
     private async fetchYamlConfig(
         octokit: Octokit,
@@ -129,7 +175,16 @@ class ConfigService {
                 // Decode base64 content
                 if ('content' in data && data.content && data.encoding === 'base64') {
                     const content = Buffer.from(data.content, 'base64').toString('utf8');
-                    return this.parseYamlContent(content, path);
+                    const parsed = this.parseYamlContent(content, path);
+
+                    if (parsed) {
+                        logger.info(
+                            { path, keys: Object.keys(parsed) },
+                            `Loaded config from ${path}`,
+                        );
+                    }
+
+                    return parsed;
                 }
             } catch (error) {
                 const err = error as { status?: number };
@@ -138,7 +193,7 @@ class ConfigService {
             }
         }
 
-        logger.debug({ owner, repo }, 'No .prbot.yml found, using defaults');
+        logger.debug({ owner, repo }, 'No .axdreview.yml found, using defaults');
         return null;
     }
 
@@ -154,12 +209,12 @@ class ConfigService {
                 return null;
             }
 
-            logger.info({ filePath, keys: Object.keys(raw) }, 'Parsed .prbot.yml');
+            logger.info({ filePath, keys: Object.keys(raw) }, 'Parsed config YAML');
             return raw as Partial<RepoConfig>;
         } catch (error) {
             logger.warn(
                 { err: error, filePath },
-                'Failed to parse .prbot.yml — using defaults',
+                'Failed to parse config YAML — using defaults',
             );
             return null;
         }
@@ -168,6 +223,7 @@ class ConfigService {
     /**
      * Validate a raw object against the full config schema.
      * Returns a fully populated config with defaults for missing fields.
+     * Never throws — falls back to defaults on validation failure.
      */
     private validateAndParse(raw: unknown): RepoConfig {
         const result = RepoConfigSchema.safeParse(raw);

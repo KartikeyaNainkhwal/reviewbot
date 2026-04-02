@@ -1,14 +1,17 @@
-import { getInstallationOctokit } from '../github/app.js';
-import { fetchPRDiff, parseDiff, filterFiles } from '../github/diff.js';
-import { postReviewComments, postPRComment } from '../github/comments.js';
-import { reviewFiles } from '../llm/reviewer.js';
+import { getInstallationOctokit, fetchPRDiff, postIssueComment } from '../github/app.js';
+import { parseDiff } from '../github/diff-parser.js';
+import { extractReviewableChunks } from '../github/chunk-extractor.js';
+import { reviewChunks } from '../llm/reviewer.js';
+import { postFullReview } from '../github/review-poster.js';
 import { reviewRepo } from '../db/repositories/review.repo.js';
 import { repositoryRepo } from '../db/repositories/repository.repo.js';
+import { installationRepo } from '../db/repositories/installation.repo.js';
 import { configService } from './config.service.js';
 import { usageService } from './usage.service.js';
 import { env } from '../config/env.js';
 import { createChildLogger } from '../config/logger.js';
 import type { ReviewJobData, ReviewResult } from '../types/review.types.js';
+import type { PRContext, RepoReviewConfig } from '../llm/prompts.js';
 
 class ReviewService {
     /**
@@ -59,7 +62,7 @@ class ReviewService {
 
             // Check diff size limit
             if (rawDiff.length > env.MAX_DIFF_SIZE_BYTES) {
-                await postPRComment(
+                await postIssueComment(
                     octokit,
                     owner,
                     repo,
@@ -72,91 +75,90 @@ class ReviewService {
                 });
             }
 
-            // 6. Parse diff into file objects
-            const allFiles = parseDiff(rawDiff);
-
-            // 7. Filter files based on repo config
+            // 6. Parse diff and extract reviewable chunks
+            const parsedDiff = parseDiff(rawDiff);
             const repoConfig = configService.getConfig(repoRecord.config);
-            const files = filterFiles(allFiles, repoConfig.includeGlobs, repoConfig.excludeGlobs ?? repoConfig.ignore_paths);
 
-            if (files.length === 0) {
+            // Check file count limit
+            if (parsedDiff.totalFiles > (repoConfig.maxFilesPerReview ?? repoConfig.max_files_per_review)) {
+                await postIssueComment(
+                    octokit,
+                    owner,
+                    repo,
+                    jobData.prNumber,
+                    `🤖 **AXD**: Skipping review — PR touches ${parsedDiff.totalFiles} files (limit: ${repoConfig.max_files_per_review}).`,
+                );
+                return this.completeReview(review.id, startTime, {
+                    status: 'skipped',
+                    summary: `Too many files: ${parsedDiff.totalFiles} > ${repoConfig.max_files_per_review}`,
+                });
+            }
+
+            const { chunks, skipped } = extractReviewableChunks(parsedDiff, undefined, repoConfig.ignore_paths);
+
+            if (chunks.length === 0) {
                 return this.completeReview(review.id, startTime, {
                     status: 'skipped',
                     summary: 'No reviewable files after filtering.',
                 });
             }
 
-            // Check file count limit
-            const maxFiles = repoConfig.maxFilesPerReview ?? repoConfig.max_files_per_review;
-            if (files.length > maxFiles) {
-                await postPRComment(
-                    octokit,
-                    owner,
-                    repo,
-                    jobData.prNumber,
-                    `🤖 **AXD**: Skipping review — PR touches ${files.length} files (limit: ${repoConfig.maxFilesPerReview}).`,
-                );
-                return this.completeReview(review.id, startTime, {
-                    status: 'skipped',
-                    summary: `Too many files: ${files.length} > ${repoConfig.maxFilesPerReview}`,
-                });
-            }
+            const filesReviewed = parsedDiff.totalFiles - skipped.length;
+            log.info({ fileCount: filesReviewed, chunkCount: chunks.length }, 'Starting LLM review');
 
-            log.info({ fileCount: files.length }, 'Starting LLM review');
+            // 7. Build context and call LLM
+            const prContext: PRContext = {
+                title: jobData.title,
+                description: jobData.body,
+                author: jobData.sender,
+                baseBranch: 'main',
+                headBranch: 'feature',
+                language: jobData.language,
+            };
 
-            // 8. Call LLM for review
-            const reviewOutput = await reviewFiles(
-                files,
-                jobData.title,
-                jobData.body,
-                jobData.language,
-                repoConfig.customInstructions,
+            const configPromptContext = configService.getPromptContext(repoConfig);
+
+            const reviewConfig: RepoReviewConfig = {
+                customInstructions: configPromptContext || repoConfig.customInstructions,
+                focusAreas: repoConfig.review_focus,
+                severityThreshold: repoConfig.severity_threshold,
+            };
+
+            const reviewOutput = await reviewChunks(chunks, prContext, reviewConfig);
+
+            // 8. Post review to GitHub
+            const durationMs = Date.now() - startTime;
+
+            const llmResponse = {
+                summary: reviewOutput.summary,
+                overallVerdict: reviewOutput.overallVerdict,
+                issues: reviewOutput.issues,
+                positives: reviewOutput.positives,
+                questions: reviewOutput.questions,
+            };
+
+            const { reviewId: githubReviewId, summaryCommentId } = await postFullReview(
+                octokit,
+                owner,
+                repo,
+                jobData.prNumber,
+                jobData.headSha,
+                llmResponse,
+                {
+                    filesReviewed,
+                    durationMs,
+                    promptTokens: reviewOutput.totalPromptTokens,
+                    completionTokens: reviewOutput.totalCompletionTokens,
+                },
             );
 
-            // 9. Filter comments by severity threshold
-            const severityOrder = ['critical', 'warning', 'suggestion', 'nitpick'] as const;
-            const thresholdIdx = severityOrder.indexOf(repoConfig.severityThreshold ?? 'suggestion');
-            const filteredComments = reviewOutput.comments.filter(
-                (c) => severityOrder.indexOf(c.severity) <= thresholdIdx,
-            );
-
-            // 10. Post comments to GitHub
-            if (filteredComments.length > 0) {
-                const reviewComments = filteredComments.map((c) => ({
-                    path: c.path,
-                    line: c.line,
-                    side: c.side,
-                    body: c.body,
-                }));
-                await postReviewComments(
-                    octokit,
-                    owner,
-                    repo,
-                    jobData.prNumber,
-                    jobData.headSha,
-                    reviewOutput.summary,
-                    reviewComments,
-                );
-            } else {
-                // Post summary-only comment if no issues found
-                await postPRComment(
-                    octokit,
-                    owner,
-                    repo,
-                    jobData.prNumber,
-                    `🤖 **AXD — AI Code Review**\n\n${reviewOutput.summary}\n\n✅ No issues found.`,
-                );
+            // 9. Save issues to DB
+            if (reviewOutput.issues.length > 0) {
+                await reviewRepo.addIssues(review.id, reviewOutput.issues);
             }
 
-            // 11. Save comments to DB
-            if (filteredComments.length > 0) {
-                await reviewRepo.addComments(review.id, filteredComments);
-            }
-
-            // 12. Track usage
-            const installationRecord = await (
-                await import('../db/repositories/installation.repo.js')
-            ).installationRepo.findByGithubId(jobData.installationId);
+            // 10. Track usage
+            const installationRecord = await installationRepo.findByGithubId(jobData.installationId);
 
             if (installationRecord) {
                 await usageService.trackUsage(
@@ -166,23 +168,25 @@ class ReviewService {
                 );
             }
 
-            // 13. Complete review
-            const durationMs = Date.now() - startTime;
+            // 11. Complete review (persist GitHub IDs for future updates)
             await reviewRepo.updateStatus(review.id, 'COMPLETED', {
-                filesReviewed: files.length,
-                commentsPosted: filteredComments.length,
+                verdict: reviewOutput.overallVerdict,
+                filesReviewed,
+                commentsPosted: reviewOutput.issues.length,
                 promptTokens: reviewOutput.totalPromptTokens,
                 completionTokens: reviewOutput.totalCompletionTokens,
                 durationMs,
                 summary: reviewOutput.summary,
                 completedAt: new Date(),
+                githubReviewId: githubReviewId ?? undefined,
+                githubCommentId: summaryCommentId,
             });
 
             return {
                 reviewId: review.id,
                 status: 'completed',
-                filesReviewed: files.length,
-                commentsPosted: filteredComments.length,
+                filesReviewed,
+                commentsPosted: reviewOutput.issues.length,
                 promptTokens: reviewOutput.totalPromptTokens,
                 completionTokens: reviewOutput.totalCompletionTokens,
                 durationMs,

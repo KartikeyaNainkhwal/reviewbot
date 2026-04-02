@@ -1,0 +1,70 @@
+# ═══════════════════════════════════════════════════════════════════════
+# AXD Review Bot Configuration
+# ═══════════════════════════════════════════════════════════════════════
+#
+# Drop this file in your repo root to customize how AXD reviews your PRs.
+# All fields are optional — sensible defaults are used for anything omitted.
+#
+# Docs: https://github.com/KartikeyaNainkhwal/reviewbot#configuration
+
+# ─── What should the bot focus on? ───────────────────────────────────
+# Options: security, performance, bugs, logic, error-handling, testing,
+#          accessibility, api-design, database, concurrency, memory, types, documentation
+review_focus:
+  - security
+  - performance
+  - logic
+  - bugs
+
+# ─── Which files should be skipped? (glob patterns) ──────────────────
+# Uses micromatch for matching. Supports *, **, ?, [abc], {a,b}, etc.
+ignore_paths:
+  - "*.lock"
+  - "package-lock.json"
+  - "dist/**"
+  - "build/**"
+  - "*.generated.ts"
+  - "*.d.ts"
+  - "*.min.js"
+  - "*.min.css"
+  - "*.snap"
+  - "*.map"
+  - "migrations/**"
+  - "node_modules/**"
+  - "coverage/**"
+  - ".next/**"
+
+# ─── Minimum severity to report ─────────────────────────────────────
+# Options: critical, high, medium, low
+# Only issues at this level or above will be posted as comments.
+severity_threshold: "low"
+
+# ─── Auto-approve clean PRs? ────────────────────────────────────────
+# If true, the bot submits an APPROVE review when zero issues are found.
+# If false, it posts a COMMENT review instead.
+auto_approve_if_clean: false
+
+# ─── Team-specific rules ────────────────────────────────────────────
+# These plain-English rules are injected directly into the AI prompt.
+# The bot will enforce them strictly during review.
+custom_rules:
+  - "Always check for SQL injection in raw queries"
+  - "Ensure all async functions have try/catch"
+  - "Never log sensitive data (passwords, tokens, PII)"
+  - "All API endpoints must validate request body"
+  - "Check that database transactions are used for multi-step operations"
+
+# ─── Stack hints ─────────────────────────────────────────────────────
+# Help the AI understand your tech stack for better reviews.
+language_hints:
+  - "typescript"
+  - "nodejs"
+  - "express"
+  - "prisma"
+
+# ─── Bot display name ───────────────────────────────────────────────
+bot_name: "AXD Bot"
+
+# ─── Limits ──────────────────────────────────────────────────────────
+max_files_per_review: 25
+max_diff_lines: 3000

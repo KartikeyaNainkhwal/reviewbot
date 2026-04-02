@@ -7,53 +7,22 @@ import {
     getInstallationOctokit,
     fetchPRMetadata,
     fetchPRDiff,
-    fetchPRFiles,
-    postReview,
     postIssueComment,
-    type PRMetadata,
-    type ReviewComment,
 } from '../github/app.js';
+import { parseDiff } from '../github/diff-parser.js';
+import { extractReviewableChunks } from '../github/chunk-extractor.js';
+import { reviewChunks } from '../llm/reviewer.js';
+import { applyReviewLabel } from '../github/label-manager.js';
+import { postFullReview } from '../github/review-poster.js';
+import { configService } from '../services/config.service.js';
+import { usageService } from '../services/usage.service.js';
 import { reviewRepo } from '../db/repositories/review.repo.js';
 import { repositoryRepo } from '../db/repositories/repository.repo.js';
+import { installationRepo } from '../db/repositories/installation.repo.js';
 import type { ReviewJobData } from '../types/review.types.js';
+import type { PRContext, RepoReviewConfig } from '../llm/prompts.js';
 
 let worker: Worker<ReviewJobData> | null = null;
-
-// ─── Review engine stub ─────────────────────────────────────────────────
-// TODO: Replace with real LLM-based review engine from src/llm/reviewer.ts
-
-interface ReviewEngineResult {
-    summary: string;
-    comments: ReviewComment[];
-    promptTokens: number;
-    completionTokens: number;
-}
-
-/**
- * STUB: This is where the LLM review engine will be called.
- * For now, returns a placeholder response so the pipeline is end-to-end testable.
- *
- * In production, this calls src/llm/reviewer.ts → reviewFiles()
- */
-function runReviewEngine(
-    _diff: string,
-    _files: Array<{ filename: string; status: string; patch: string }>,
-    _metadata: PRMetadata,
-    _language: string | null,
-): Promise<ReviewEngineResult> {
-    // ──────────────────────────────────────────────────────────────────
-    // Replace this with:
-    //   import { reviewFiles } from '../llm/reviewer.js';
-    //   const result = await reviewFiles(fileDiffs, metadata.title, metadata.body, language);
-    //   return { summary: result.summary, comments: result.comments as ReviewComment[], ... };
-    // ──────────────────────────────────────────────────────────────────
-    return Promise.resolve({
-        summary: '🤖 AXD reviewed this PR. LLM engine not yet connected — this is a test review.',
-        comments: [],
-        promptTokens: 0,
-        completionTokens: 0,
-    });
-}
 
 // ─── Job processor ──────────────────────────────────────────────────────
 
@@ -116,9 +85,9 @@ async function processReviewJob(job: Job<ReviewJobData>) {
         // ── Step 5: Fetch the PR diff ──────────────────────────────────
 
         log.info('Fetching PR diff');
-        const diff = await fetchPRDiff(octokit, owner, repo, data.prNumber);
+        const rawDiff = await fetchPRDiff(octokit, owner, repo, data.prNumber);
 
-        if (!diff || diff.trim().length === 0) {
+        if (!rawDiff || rawDiff.trim().length === 0) {
             log.info('Empty diff, skipping');
             await reviewRepo.updateStatus(review.id, 'SKIPPED', {
                 summary: 'Empty diff',
@@ -129,96 +98,153 @@ async function processReviewJob(job: Job<ReviewJobData>) {
         }
 
         // Guard: diff size limit
-        if (diff.length > env.MAX_DIFF_SIZE_BYTES) {
-            log.warn({ diffSize: diff.length, limit: env.MAX_DIFF_SIZE_BYTES }, 'Diff too large');
+        if (rawDiff.length > env.MAX_DIFF_SIZE_BYTES) {
+            log.warn({ diffSize: rawDiff.length, limit: env.MAX_DIFF_SIZE_BYTES }, 'Diff too large');
             await postIssueComment(
                 octokit, owner, repo, data.prNumber,
-                `🤖 **AXD** — Skipping review: diff is ${(diff.length / 1024).toFixed(0)}KB (limit: ${(env.MAX_DIFF_SIZE_BYTES / 1024).toFixed(0)}KB).`,
+                `🤖 **AXD** — Skipping review: diff is ${(rawDiff.length / 1024).toFixed(0)}KB (limit: ${(env.MAX_DIFF_SIZE_BYTES / 1024).toFixed(0)}KB).`,
             );
             await reviewRepo.updateStatus(review.id, 'SKIPPED', {
-                summary: `Diff too large: ${diff.length} bytes`,
+                summary: `Diff too large: ${rawDiff.length} bytes`,
                 completedAt: new Date(),
                 durationMs: Date.now() - startTime,
             });
             return { status: 'skipped', reason: 'diff_too_large' };
         }
 
-        // ── Step 6: Fetch individual file patches ──────────────────────
+        // ── Step 6: Load repo config (before parsing, needed for ignore_paths) ──
 
-        log.info({ fileCount: metadata.changedFiles }, 'Fetching file patches');
-        const files = await fetchPRFiles(octokit, owner, repo, data.prNumber);
+        const repoConfig = configService.getConfig(repoRecord.config);
+
+        // ── Step 7: Parse diff and extract reviewable chunks ───────────
+
+        const parsedDiff = parseDiff(rawDiff);
 
         // Guard: file count limit
-        if (files.length > env.MAX_FILES_PER_REVIEW) {
-            log.warn({ fileCount: files.length, limit: env.MAX_FILES_PER_REVIEW }, 'Too many files');
+        if (parsedDiff.totalFiles > env.MAX_FILES_PER_REVIEW) {
+            log.warn({ fileCount: parsedDiff.totalFiles, limit: env.MAX_FILES_PER_REVIEW }, 'Too many files');
             await postIssueComment(
                 octokit, owner, repo, data.prNumber,
-                `🤖 **AXD** — Skipping review: PR touches ${files.length} files (limit: ${env.MAX_FILES_PER_REVIEW}).`,
+                `🤖 **AXD** — Skipping review: PR touches ${parsedDiff.totalFiles} files (limit: ${env.MAX_FILES_PER_REVIEW}).`,
             );
             await reviewRepo.updateStatus(review.id, 'SKIPPED', {
-                summary: `Too many files: ${files.length}`,
+                summary: `Too many files: ${parsedDiff.totalFiles}`,
                 completedAt: new Date(),
                 durationMs: Date.now() - startTime,
             });
             return { status: 'skipped', reason: 'too_many_files' };
         }
 
-        // ── Step 7: Run the review engine ──────────────────────────────
+        const { chunks, skipped } = extractReviewableChunks(parsedDiff, undefined, repoConfig.ignore_paths);
 
-        log.info('Running review engine');
-        const result = await runReviewEngine(diff, files, metadata, data.language);
-
-        // ── Step 8: Post review to GitHub ──────────────────────────────
-
-        if (result.comments.length > 0) {
-            log.info({ commentCount: result.comments.length }, 'Posting review with comments');
-            await postReview(
-                octokit, owner, repo, data.prNumber,
-                metadata.headSha,
-                formatSummary(result.summary, result.comments.length),
-                result.comments,
-            );
-        } else {
-            log.info('No comments to post, posting summary only');
+        if (chunks.length === 0) {
+            log.info({ skippedFiles: skipped.length }, 'No reviewable files after filtering');
             await postIssueComment(
                 octokit, owner, repo, data.prNumber,
-                formatSummary(result.summary, 0),
+                '🤖 **AXD** — No reviewable files in this PR (all files were filtered out).',
             );
+            await reviewRepo.updateStatus(review.id, 'SKIPPED', {
+                summary: 'No reviewable files after filtering',
+                completedAt: new Date(),
+                durationMs: Date.now() - startTime,
+            });
+            return { status: 'skipped', reason: 'no_reviewable_files' };
         }
 
-        // ── Step 9: Save results to DB ─────────────────────────────────
+        // ── Step 8: Build PR context ──────────────────────────────────
+
+        const prContext: PRContext = {
+            title: metadata.title,
+            description: metadata.body,
+            author: metadata.author,
+            baseBranch: metadata.baseRef,
+            headBranch: metadata.headRef,
+            language: data.language,
+        };
+
+        // Inject the full config context (custom_rules, review_focus, etc.) into the prompt
+        const configPromptContext = configService.getPromptContext(repoConfig);
+
+        const reviewConfig: RepoReviewConfig = {
+            customInstructions: configPromptContext || repoConfig.customInstructions,
+            focusAreas: repoConfig.review_focus,
+            severityThreshold: repoConfig.severity_threshold,
+        };
+
+        // ── Step 8: Run the LLM review engine ──────────────────────────
+
+        log.info({ chunkCount: chunks.length }, 'Running LLM review engine');
+        const result = await reviewChunks(chunks, prContext, reviewConfig);
+
+        // ── Step 9: Post review to GitHub ──────────────────────────────
 
         const durationMs = Date.now() - startTime;
 
-        if (result.comments.length > 0) {
-            await reviewRepo.addComments(
-                review.id,
-                result.comments.map((c) => ({
-                    path: c.path,
-                    line: c.line,
-                    side: c.side,
-                    body: c.body,
-                    severity: 'suggestion' as const,
-                    category: 'logic',
-                })),
-            );
+        const llmResponse = {
+            summary: result.summary,
+            overallVerdict: result.overallVerdict,
+            issues: result.issues,
+            positives: result.positives,
+            questions: result.questions,
+        };
+
+        const { reviewId: githubReviewId, summaryCommentId: githubCommentId } = await postFullReview(
+            octokit, owner, repo, data.prNumber,
+            metadata.headSha,
+            llmResponse,
+            {
+                filesReviewed: parsedDiff.totalFiles - skipped.length,
+                durationMs,
+                promptTokens: result.totalPromptTokens,
+                completionTokens: result.totalCompletionTokens,
+            },
+            rawDiff,
+            repoConfig.ignore_paths,
+        );
+
+        // ── Step 10: Save results to DB ────────────────────────────────
+
+        if (result.issues.length > 0) {
+            await reviewRepo.addIssues(review.id, result.issues);
         }
 
         await reviewRepo.updateStatus(review.id, 'COMPLETED', {
-            filesReviewed: files.length,
-            commentsPosted: result.comments.length,
-            promptTokens: result.promptTokens,
-            completionTokens: result.completionTokens,
+            verdict: result.overallVerdict,
+            filesReviewed: parsedDiff.totalFiles - skipped.length,
+            commentsPosted: result.issues.length,
+            promptTokens: result.totalPromptTokens,
+            completionTokens: result.totalCompletionTokens,
             durationMs,
             summary: result.summary,
             completedAt: new Date(),
+            githubReviewId: githubReviewId ?? undefined,
+            githubCommentId,
         });
+
+        // ── Step 11: Apply review label to PR ────────────────────────────
+
+        await applyReviewLabel(
+            octokit, owner, repo, data.prNumber,
+            result.issues, result.overallVerdict,
+        );
+
+        // ── Step 12: Track usage ───────────────────────────────────────
+
+        const installationRecord = await installationRepo.findByGithubId(data.installationId);
+        if (installationRecord) {
+            await usageService.trackUsage(
+                installationRecord.id,
+                result.totalPromptTokens,
+                result.totalCompletionTokens,
+            );
+        }
 
         log.info(
             {
                 status: 'completed',
-                filesReviewed: files.length,
-                commentsPosted: result.comments.length,
+                filesReviewed: parsedDiff.totalFiles - skipped.length,
+                issuesFound: result.issues.length,
+                verdict: result.overallVerdict,
                 durationMs,
             },
             'Review completed',
@@ -227,8 +253,8 @@ async function processReviewJob(job: Job<ReviewJobData>) {
         return {
             status: 'completed',
             reviewId: review.id,
-            filesReviewed: files.length,
-            commentsPosted: result.comments.length,
+            filesReviewed: parsedDiff.totalFiles - skipped.length,
+            issuesFound: result.issues.length,
             durationMs,
         };
     } catch (error) {
@@ -246,23 +272,6 @@ async function processReviewJob(job: Job<ReviewJobData>) {
         // Re-throw so Bull retries the job
         throw error;
     }
-}
-
-// ─── Summary formatting ─────────────────────────────────────────────────
-
-function formatSummary(summary: string, commentCount: number): string {
-    return [
-        '🤖 **AXD — AI Code Review**',
-        '',
-        summary,
-        '',
-        '---',
-        commentCount > 0
-            ? `📊 **${commentCount}** comment${commentCount === 1 ? '' : 's'} posted`
-            : '✅ No issues found',
-        '',
-        '<sub>Powered by Claude • React with 👍/👎 on comments to give feedback</sub>',
-    ].join('\n');
 }
 
 // ─── Worker lifecycle ───────────────────────────────────────────────────

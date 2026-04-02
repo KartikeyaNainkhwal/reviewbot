@@ -198,6 +198,33 @@ export class ReviewRepo {
             notHelpful,
         };
     }
+
+    /**
+     * Find the most recent githubCommentId for a given repo + PR number.
+     *
+     * Used by the upsert flow to check if we've already posted a summary
+     * comment on this PR that can be updated in-place.
+     *
+     * @param repoFullName - The full repo name (e.g., "owner/repo")
+     * @param prNumber     - The PR number
+     * @returns The GitHub comment ID if found, null otherwise
+     */
+    async findLatestCommentId(
+        repoFullName: string,
+        prNumber: number,
+    ): Promise<number | null> {
+        const review = await prisma.review.findFirst({
+            where: {
+                prNumber,
+                githubCommentId: { not: null },
+                repository: { fullName: repoFullName },
+            },
+            orderBy: { createdAt: 'desc' },
+            select: { githubCommentId: true },
+        });
+
+        return review?.githubCommentId ?? null;
+    }
 }
 
 export const reviewRepo = new ReviewRepo();

@@ -1,4 +1,5 @@
-import { callGrok } from './client.js';
+import { getLLMProvider } from './client.js';
+import type { ReviewOutput } from './provider.js';
 import { getSystemPrompt, buildReviewPrompt, buildRepairPrompt, type PRContext, type RepoReviewConfig } from './prompts.js';
 import type { ReviewableChunk } from '../types/diff.types.js';
 import type { LLMReviewResponse, ReviewIssue } from '../types/review.types.js';
@@ -8,157 +9,52 @@ import { logger } from '../config/logger.js';
 
 // ─── Public types ───────────────────────────────────────────────────────
 
-export interface ReviewOutput {
-    /** All issues found across all chunks */
-    issues: ReviewIssue[];
+export type { ReviewOutput } from './provider.js';
+
+// Extended output with legacy compat fields
+export interface ReviewOutputWithComments extends ReviewOutput {
     /** Legacy comment format for posting to GitHub */
     comments: LLMComment[];
-    /** Combined summary */
-    summary: string;
-    /** Overall verdict (worst across chunks wins) */
-    overallVerdict: LLMReviewResponse['overallVerdict'];
-    /** Positive observations */
-    positives: string[];
-    /** Questions for the author */
-    questions: string[];
-    /** Token usage */
-    totalPromptTokens: number;
-    totalCompletionTokens: number;
-    /** Number of Grok calls made (including retries) */
-    totalAttempts: number;
 }
-
-// ─── Verdict priority (worst wins when merging chunks) ──────────────────
-
-const VERDICT_PRIORITY: Record<LLMReviewResponse['overallVerdict'], number> = {
-    approve: 0,
-    comment: 1,
-    request_changes: 2,
-};
 
 // ─── Main entry point ───────────────────────────────────────────────────
 
 /**
- * Review one or more diff chunks using Grok.
+ * Review one or more diff chunks using the active LLM provider.
  *
- * For each chunk:
- *   1. Builds the full prompt (system + user)
- *   2. Calls Grok with retry/repair logic
- *   3. Collects and merges results
+ * Delegates to the provider's `review()` method, which handles:
+ *   - Building prompts
+ *   - Calling the LLM with retry/repair logic
+ *   - Severity filtering
+ *   - Merging results across chunks
  *
- * Returns aggregated issues, comments, summary, and verdict.
+ * Also converts issues to legacy comment format for GitHub posting.
  */
 export async function reviewChunks(
     chunks: ReviewableChunk[],
     prContext: PRContext,
     repoConfig: RepoReviewConfig,
     fileContexts?: Map<string, string>,
-): Promise<ReviewOutput> {
-    const systemPrompt = getSystemPrompt();
-    const allIssues: ReviewIssue[] = [];
-    const allPositives: string[] = [];
-    const allQuestions: string[] = [];
-    const summaries: string[] = [];
-    let worstVerdict: LLMReviewResponse['overallVerdict'] = 'approve';
-    let totalPromptTokens = 0;
-    let totalCompletionTokens = 0;
-    let totalAttempts = 0;
-
-    for (let i = 0; i < chunks.length; i++) {
-        const chunk = chunks[i];
-
-        try {
-            logger.info(
-                {
-                    chunkId: chunk.id,
-                    chunkIndex: i + 1,
-                    totalChunks: chunks.length,
-                    fileCount: chunk.files.length,
-                    priority: chunk.priority,
-                    estimatedTokens: chunk.estimatedTokens,
-                },
-                'Reviewing chunk',
-            );
-
-            const userPrompt = buildReviewPrompt(chunk, prContext, repoConfig, fileContexts);
-
-            const result = await callGrok(
-                systemPrompt,
-                userPrompt,
-                buildRepairPrompt,
-            );
-
-            // Aggregate results
-            allIssues.push(...result.response.issues);
-            allPositives.push(...result.response.positives);
-            allQuestions.push(...result.response.questions);
-            summaries.push(result.response.summary);
-            totalPromptTokens += result.promptTokens;
-            totalCompletionTokens += result.completionTokens;
-            totalAttempts += result.attempts;
-
-            // Track worst verdict
-            if (VERDICT_PRIORITY[result.response.overallVerdict] > VERDICT_PRIORITY[worstVerdict]) {
-                worstVerdict = result.response.overallVerdict;
-            }
-
-            logger.info(
-                {
-                    chunkId: chunk.id,
-                    issuesFound: result.response.issues.length,
-                    verdict: result.response.overallVerdict,
-                    promptTokens: result.promptTokens,
-                    completionTokens: result.completionTokens,
-                },
-                'Chunk review completed',
-            );
-        } catch (error) {
-            logger.error(
-                {
-                    err: error,
-                    chunkId: chunk.id,
-                    files: chunk.files.map((f) => f.filename),
-                },
-                'Failed to review chunk',
-            );
-            // Continue with other chunks — don't let one failure break everything
-        }
-    }
-
-    // Merge summaries
-    const summary = chunks.length === 1
-        ? (summaries[0] ?? 'No reviewable content found.')
-        : `Reviewed ${chunks.length} chunks:\n\n${summaries.map((s, i) => `**Chunk ${i + 1}:** ${s}`).join('\n\n')}`;
-
-    // Deduplicate positives and questions
-    const uniquePositives = [...new Set(allPositives)];
-    const uniqueQuestions = [...new Set(allQuestions)];
-
-    // Convert issues → legacy comment format for GitHub posting
-    const comments = issuesToComments(allIssues);
+): Promise<ReviewOutputWithComments> {
+    const provider = getLLMProvider();
 
     logger.info(
         {
-            totalIssues: allIssues.length,
-            totalComments: comments.length,
-            overallVerdict: worstVerdict,
-            totalPromptTokens,
-            totalCompletionTokens,
-            totalAttempts,
+            provider: provider.name,
+            model: provider.model,
+            chunkCount: chunks.length,
         },
-        'All chunks reviewed',
+        'Starting review with LLM provider',
     );
 
+    const result = await provider.review(chunks, prContext, repoConfig, fileContexts);
+
+    // Convert issues → legacy comment format for GitHub posting
+    const comments = issuesToComments(result.issues);
+
     return {
-        issues: allIssues,
+        ...result,
         comments,
-        summary,
-        overallVerdict: worstVerdict,
-        positives: uniquePositives,
-        questions: uniqueQuestions,
-        totalPromptTokens,
-        totalCompletionTokens,
-        totalAttempts,
     };
 }
 
@@ -174,7 +70,7 @@ export async function reviewFiles(
     prBody: string | null,
     language: string | null,
     customInstructions?: string,
-): Promise<ReviewOutput> {
+): Promise<ReviewOutputWithComments> {
     // Convert legacy FileDiff[] to ReviewableChunk[]
     const chunkFiles = files.map((f) => ({
         filename: f.path,

@@ -1,4 +1,5 @@
 import { logger } from '../config/logger.js';
+import { configService } from '../services/config.service.js';
 import type {
     DiffFile,
     ParsedDiff,
@@ -136,6 +137,7 @@ const PRIORITY_ORDER: Record<FilePriority, number> = {
  *
  * Steps:
  *  1. Filter out lock files, generated files, binaries, env examples
+ *  1b. Filter out files matching .axdreview.yml ignore_paths globs
  *  2. Classify each file by priority (security > core > test > config > docs)
  *  3. Group related files (same directory / import chain)
  *  4. Split into chunks that fit within MAX_CHUNK_TOKENS
@@ -144,6 +146,7 @@ const PRIORITY_ORDER: Record<FilePriority, number> = {
 export function extractReviewableChunks(
     parsedDiff: ParsedDiff,
     maxTokensPerChunk: number = MAX_CHUNK_TOKENS,
+    ignorePatterns: string[] = [],
 ): ChunkExtractionResult {
     const skipped: Array<{ filename: string; reason: string }> = [];
     const reviewable: Array<{ file: DiffFile; priority: FilePriority }> = [];
@@ -157,10 +160,16 @@ export function extractReviewableChunks(
             continue;
         }
 
-        // Skip by pattern
+        // Skip by hardcoded pattern
         const skipRule = SKIP_PATTERNS.find((r) => r.pattern.test(file.filename));
         if (skipRule) {
             skipped.push({ filename: file.filename, reason: skipRule.reason });
+            continue;
+        }
+
+        // Skip by .axdreview.yml ignore_paths globs (via micromatch)
+        if (ignorePatterns.length > 0 && configService.shouldIgnoreFile(file.filename, ignorePatterns)) {
+            skipped.push({ filename: file.filename, reason: 'matched ignore_paths glob' });
             continue;
         }
 

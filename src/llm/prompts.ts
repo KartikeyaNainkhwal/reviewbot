@@ -92,13 +92,14 @@ You MUST respond with ONLY valid JSON (no markdown fences, no explanation text).
   "issues": [
     {
       "severity": "critical" | "high" | "medium" | "low",
-      "type": "bug" | "security" | "performance" | "logic" | "style",
+      "type": "bug" | "security" | "performance" | "logic" | "style" | "types",
       "filename": "string — exact path from the diff",
       "lineNumber": number — line number in the NEW file (+side of diff),
       "title": "string — concise 5-10 word title for the issue",
       "description": "string — clear explanation of WHY this is a problem, what could go wrong",
       "suggestion": "string — exact code or steps to fix the issue",
-      "codeSnippet": "string (optional) — corrected code that can replace the problematic lines"
+      "codeSnippet": "string (optional) — corrected version of the problematic lines",
+      "suggestionCode": "string (optional) — EXACT replacement code for the line at lineNumber. This must be a drop-in replacement that the developer can apply with one click. Include ONLY the fixed line(s), no surrounding context."
     }
   ],
   "positives": ["string — things done well worth acknowledging (good error handling, clean abstractions, thorough tests)"],
