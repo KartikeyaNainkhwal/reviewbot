@@ -288,10 +288,6 @@ export function startReviewWorker(): Worker<ReviewJobData> {
         {
             connection: getRedisConnection(),
             concurrency: env.QUEUE_CONCURRENCY,
-            limiter: {
-                max: env.MAX_REVIEWS_PER_HOUR_PER_INSTALL,
-                duration: 3_600_000, // 1 hour
-            },
         },
     );
 
