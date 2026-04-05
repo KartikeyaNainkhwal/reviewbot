@@ -15,6 +15,8 @@
   <p>
     <i>Stop waiting hours for a human to review your Pull Requests. Let Artificial Intelligence parse your Git Diffs, catch critical bugs, and suggest one-click fixes instantly.</i>
   </p>
+
+  <h3><a href="https://github.com/apps/reviewcodekartikeya">👉 Install ReviewCode App to your GitHub</a> | <a href="https://reviewbot-sandy.vercel.app/">View Live Dashboard</a></h3>
 </div>
 
 <br />
