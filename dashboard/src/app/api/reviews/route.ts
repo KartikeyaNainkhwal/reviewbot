@@ -1,12 +1,23 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { auth } from "@/auth";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
     try {
+        const session = await auth();
+        if (!session?.user || !(session.user as any).login) {
+            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        }
+
+        const username = (session.user as any).login;
+
         const reviews = await prisma.review.findMany({
-            where: { status: "COMPLETED" },
+            where: {
+                status: "COMPLETED",
+                repository: { fullName: { startsWith: `${username}/` } }
+            },
             orderBy: { createdAt: "desc" },
             take: 20,
             include: {

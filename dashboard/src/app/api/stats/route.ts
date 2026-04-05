@@ -1,49 +1,78 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { auth } from "@/auth";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
     try {
+        const session = await auth();
+        if (!session?.user || !(session.user as any).login) {
+            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        }
+        const username = (session.user as any).login;
+
         // Total PRs reviewed
         const totalReviews = await prisma.review.count({
-            where: { status: "COMPLETED" },
+            where: {
+                status: "COMPLETED",
+                repository: { fullName: { startsWith: `${username}/` } }
+            },
         });
 
         // Total issues found (sum of commentsPosted — each is an issue)
         const issueAgg = await prisma.review.aggregate({
-            where: { status: "COMPLETED" },
+            where: {
+                status: "COMPLETED",
+                repository: { fullName: { startsWith: `${username}/` } }
+            },
             _sum: { commentsPosted: true },
         });
         const totalIssues = issueAgg._sum.commentsPosted ?? 0;
 
         // Critical issues — count ReviewComments with severity CRITICAL
         const criticalCount = await prisma.reviewComment.count({
-            where: { severity: "CRITICAL" },
+            where: {
+                severity: "CRITICAL",
+                review: { repository: { fullName: { startsWith: `${username}/` } } }
+            },
         });
 
         // High issues
         const highCount = await prisma.reviewComment.count({
-            where: { severity: "HIGH" },
+            where: {
+                severity: "HIGH",
+                review: { repository: { fullName: { startsWith: `${username}/` } } }
+            },
         });
 
         // Connected repos (distinct repos that have had reviews)
         const repoCount = await prisma.review.groupBy({
             by: ["repositoryId"],
-            where: { status: "COMPLETED" },
+            where: {
+                status: "COMPLETED",
+                repository: { fullName: { startsWith: `${username}/` } }
+            },
         });
         const connectedRepos = repoCount.length;
 
         // Approval rate
         const approvedCount = await prisma.review.count({
-            where: { status: "COMPLETED", verdict: "APPROVE" },
+            where: {
+                status: "COMPLETED",
+                verdict: "APPROVE",
+                repository: { fullName: { startsWith: `${username}/` } }
+            },
         });
         const approvalRate =
             totalReviews > 0 ? Math.round((approvedCount / totalReviews) * 100) : 0;
 
         // Token usage
         const tokenAgg = await prisma.review.aggregate({
-            where: { status: "COMPLETED" },
+            where: {
+                status: "COMPLETED",
+                repository: { fullName: { startsWith: `${username}/` } }
+            },
             _sum: { promptTokens: true, completionTokens: true },
         });
 
@@ -55,6 +84,7 @@ export async function GET() {
             where: {
                 status: "COMPLETED",
                 createdAt: { gte: fourteenDaysAgo },
+                repository: { fullName: { startsWith: `${username}/` } }
             },
             select: { createdAt: true },
             orderBy: { createdAt: "asc" },
@@ -77,9 +107,12 @@ export async function GET() {
 
         // Token usage & Cost from UsageRecords
         const usageAgg = await prisma.usageRecord.aggregate({
+            where: {
+                installation: { accountLogin: username }
+            },
             _sum: { estimatedCostUsd: true },
         });
-        const totalEstimatedCost = usageAgg._sum.estimatedCostUsd ?? 0;
+        const totalEstimatedCost = usageAgg._sum?.estimatedCostUsd ?? 0;
 
         return NextResponse.json({
             totalReviews,
