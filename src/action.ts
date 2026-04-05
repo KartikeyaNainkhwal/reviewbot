@@ -3,14 +3,14 @@ import * as github from '@actions/github';
 import Anthropic from '@anthropic-ai/sdk';
 
 // ═══════════════════════════════════════════════════════════════════════
-// AXD Review Bot — GitHub Action Entry Point
+// ReviewCode Review Bot — GitHub Action Entry Point
 // ═══════════════════════════════════════════════════════════════════════
 //
 // Self-contained action that reviews PRs using Claude.
 // No database, no Redis, no BullMQ — just diff → LLM → comments.
 //
 // Usage (3 lines):
-//   - uses: KartikeyaNainkhwal/axd-review-bot@v1
+//   - uses: KartikeyaNainkhwal/reviewcode-review-bot@v1
 //     with:
 //       github-token: ${{ secrets.GITHUB_TOKEN }}
 //       anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -141,7 +141,7 @@ function getSystemPrompt(customRules: string[]): string {
         ? `\n\nCustom rules for this repo:\n${customRules.map((r) => `- ${r}`).join('\n')}`
         : '';
 
-    return `You are AXD, a senior software engineer performing a thorough code review. You are direct, precise, and focus only on issues that actually matter. You do not nitpick style unless it causes bugs.
+    return `You are ReviewCode, a senior software engineer performing a thorough code review. You are direct, precise, and focus only on issues that actually matter. You do not nitpick style unless it causes bugs.
 
 Focus on (in this order):
 1. Security vulnerabilities (SQL injection, XSS, auth bypass, exposed secrets)
@@ -227,7 +227,7 @@ function generateSummaryMarkdown(
         comment: '💬 **Reviewed**',
     };
 
-    lines.push('## 🤖 AXD Review Summary');
+    lines.push('## 🤖 ReviewCode Review Summary');
     lines.push('');
     lines.push(`> ${verdictMap[result.overallVerdict]} · Reviewed commit \`${commitSha.slice(0, 7)}\` · ${new Date().toUTCString()}`);
     lines.push('');
@@ -293,7 +293,7 @@ function generateSummaryMarkdown(
     lines.push('');
 
     lines.push('---');
-    lines.push('> 🤖 AXD Review Bot · [GitHub Action](https://github.com/KartikeyaNainkhwal/reviewbot)');
+    lines.push('> 🤖 ReviewCode Review Bot · [GitHub Action](https://github.com/KartikeyaNainkhwal/reviewbot)');
 
     return lines.join('\n');
 }
@@ -372,7 +372,7 @@ async function run(): Promise<void> {
         const owner = context.repo.owner;
         const repo = context.repo.repo;
 
-        core.info(`🤖 AXD reviewing PR #${pullNumber} (${headSha.slice(0, 7)})`);
+        core.info(`🤖 ReviewCode reviewing PR #${pullNumber} (${headSha.slice(0, 7)})`);
 
         // ── Fetch the diff ──────────────────────────────────────────────
         const octokit = github.getOctokit(token);
@@ -464,7 +464,7 @@ ${truncatedDiff}`;
             core.warning(`Failed to parse LLM response: ${parseError}`);
             core.warning(`Raw response: ${responseText.slice(0, 500)}`);
             result = {
-                summary: 'AXD was unable to parse the review. Please check the workflow logs.',
+                summary: 'ReviewCode was unable to parse the review. Please check the workflow logs.',
                 overallVerdict: 'comment',
                 issues: [],
                 positives: [],
@@ -552,12 +552,12 @@ ${truncatedDiff}`;
         // ── Fail if critical issues found ───────────────────────────────
         if (failOnCritical && criticalCount > 0) {
             core.setFailed(
-                `🔴 AXD found ${criticalCount} critical issue${criticalCount > 1 ? 's' : ''}. Review the PR comments above.`
+                `🔴 ReviewCode found ${criticalCount} critical issue${criticalCount > 1 ? 's' : ''}. Review the PR comments above.`
             );
         }
     } catch (error) {
         const err = error as Error;
-        core.setFailed(`AXD Action failed: ${err.message}`);
+        core.setFailed(`ReviewCode Action failed: ${err.message}`);
     }
 }
 

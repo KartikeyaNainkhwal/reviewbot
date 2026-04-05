@@ -11,7 +11,7 @@ import type { AccountType } from '@prisma/client';
 
 // ─── Constants ──────────────────────────────────────────────────────────
 
-const BOT_MENTION = '@axdbot';
+const BOT_MENTION = '@reviewcodebot';
 const MAX_MANUAL_REVIEWS_PER_PR_PER_HOUR = 3;
 const RATE_LIMIT_TTL_SECONDS = 3600; // 1 hour
 
@@ -115,7 +115,7 @@ webhooks.on('issue_comment.created', async ({ id, payload }) => {
         commenter: sender.login,
     });
 
-    // ── Guard 1: Only process comments that mention @axdbot ──────────
+    // ── Guard 1: Only process comments that mention @reviewcodebot ──────────
 
     const command = parseSlashCommand(comment.body ?? '');
     if (!command) {
@@ -197,9 +197,9 @@ webhooks.on('issue_comment.created', async ({ id, payload }) => {
  * Parse a slash command from a PR comment.
  *
  * Matches patterns like:
- *   "@axdbot /review"
- *   "@axdbot  /help"
- *   "@axdbot /review please"
+ *   "@reviewcodebot /review"
+ *   "@reviewcodebot  /help"
+ *   "@reviewcodebot /review please"
  *
  * Returns the command name (without /) or null if no valid command found.
  */
@@ -211,7 +211,7 @@ export function parseSlashCommand(commentBody: string): string | null {
         return null;
     }
 
-    // Extract command: @axdbot /command [optional args]
+    // Extract command: @reviewcodebot /command [optional args]
     const pattern = new RegExp(`${BOT_MENTION}\\s+/(\\w+)`, 'i');
     const match = body.match(pattern);
 
@@ -245,7 +245,7 @@ async function handleReviewCommand(
 ): Promise<void> {
     // ── Rate limit check ─────────────────────────────────────────────
 
-    const rateLimitKey = `axd:ratelimit:review:${repoFullName}:${prNumber}`;
+    const rateLimitKey = `reviewcode:ratelimit:review:${repoFullName}:${prNumber}`;
     const redis = getRedisConnection();
 
     const currentCount = await redis.get(rateLimitKey);
@@ -322,7 +322,7 @@ async function handleHelpCommand(
     repo: string,
     prNumber: number,
 ): Promise<void> {
-    const helpText = `## 🤖 AXD Bot Commands
+    const helpText = `## 🤖 ReviewCode Bot Commands
 
 | Command | Description |
 |:--------|:------------|
@@ -331,7 +331,7 @@ async function handleHelpCommand(
 
 ### ⚙️ Configuration
 
-Drop a \`.axdreview.yml\` file in your repo root to customize review behavior:
+Drop a \`.reviewcodereview.yml\` file in your repo root to customize review behavior:
 
 \`\`\`yaml
 review_focus:

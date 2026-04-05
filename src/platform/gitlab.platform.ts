@@ -24,7 +24,7 @@ import type { LLMReviewResponse, ReviewIssue } from '../types/review.types.js';
 //  • GitHub App auth → Personal/Project Access Token
 //  • No atomic review submission — notes are created individually
 
-const BOT_MARKER = '<!-- axd-review-summary -->';
+const BOT_MARKER = '<!-- reviewcode-summary -->';
 
 export class GitLabPlatform implements ReviewPlatform {
     readonly name = 'GitLab';
@@ -220,7 +220,7 @@ export class GitLabPlatform implements ReviewPlatform {
     // ─── Labels ─────────────────────────────────────────────────────────
 
     /**
-     * Apply AXD labels to the MR.
+     * Apply ReviewCode labels to the MR.
      *
      * GitLab labels are project-level. We create them if missing,
      * then update the MR's labels array.
@@ -238,8 +238,8 @@ export class GitLabPlatform implements ReviewPlatform {
             );
             const currentLabels = (mr.labels ?? []) as string[];
 
-            // Remove old AXD labels, add new one
-            const filtered = currentLabels.filter((l: string) => !l.startsWith('axd:'));
+            // Remove old ReviewCode labels, add new one
+            const filtered = currentLabels.filter((l: string) => !l.startsWith('reviewcode:'));
             filtered.push(labelName);
 
             await this.client.put(
@@ -356,18 +356,18 @@ export class GitLabPlatform implements ReviewPlatform {
      */
     private async ensureGitLabLabel(projectId: number, labelName: string): Promise<void> {
         const colorMap: Record<string, string> = {
-            'axd: critical': '#FF0000',
-            'axd: needs-work': '#FF6B00',
-            'axd: reviewed': '#0075CA',
-            'axd: approved': '#00B300',
-            'axd: low-risk': '#E4E669',
+            'reviewcode: critical': '#FF0000',
+            'reviewcode: needs-work': '#FF6B00',
+            'reviewcode: reviewed': '#0075CA',
+            'reviewcode: approved': '#00B300',
+            'reviewcode: low-risk': '#E4E669',
         };
 
         try {
             await this.client.post(`/projects/${projectId}/labels`, {
                 name: labelName,
                 color: colorMap[labelName] ?? '#0075CA',
-                description: `AXD Review Bot label`,
+                description: `ReviewCode Review Bot label`,
             });
         } catch (error) {
             const err = error as { response?: { status?: number } };

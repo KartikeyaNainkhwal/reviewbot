@@ -5,9 +5,9 @@ import type { LLMReviewResponse, ReviewIssue, IssueSeverity, Verdict } from '../
 
 // ─── Constants ──────────────────────────────────────────────────────────
 
-const BOT_SIGNATURE = '\n\n---\n<sub>🤖 Reviewed by **AXD** · AI-powered code review</sub>';
-const BOT_COMMENT_MARKER = '<!-- axd-review-summary -->';
-const BOT_REVIEW_MARKER = 'AXD Code Review';
+const BOT_SIGNATURE = '\n\n---\n<sub>🤖 Reviewed by **ReviewCode** · AI-powered code review</sub>';
+const BOT_COMMENT_MARKER = '<!-- reviewcode-summary -->';
+const BOT_REVIEW_MARKER = 'ReviewCode Code Review';
 const MAX_INLINE_COMMENTS = 50;  // GitHub API limit per review
 
 // ─── Badge & emoji maps ─────────────────────────────────────────────────
@@ -56,7 +56,7 @@ const VERDICT_BADGE: Record<Verdict, string> = {
  * via `parseDiffPositions()`, which builds a lookup table from the raw diff.
  *
  * @param rawDiff - The raw unified diff string from the GitHub API
- * @param ignorePatterns - Glob patterns from .axdreview.yml to skip files
+ * @param ignorePatterns - Glob patterns from .reviewcodereview.yml to skip files
  * @returns The review ID, or null if no review was posted
  */
 export async function postReviewComments(
@@ -153,7 +153,7 @@ export async function postReviewComments(
     const event = hasCriticalOrHigh ? 'REQUEST_CHANGES' : 'COMMENT';
 
     // Build review body
-    let reviewBody = `## 🤖 AXD Code Review\n\n`;
+    let reviewBody = `## 🤖 ReviewCode Code Review\n\n`;
     reviewBody += `${reviewResult.summary}\n\n`;
     reviewBody += `**Found ${issues.length} issue${issues.length === 1 ? '' : 's'}** `;
     reviewBody += `(${countBySeverity(issues)})\n`;
@@ -544,7 +544,7 @@ export async function getExistingCommentId(
 // ─── 2b. GitHub API fallback scan ───────────────────────────────────────
 
 /**
- * Scan GitHub PR comments to find an existing AXD summary comment.
+ * Scan GitHub PR comments to find an existing ReviewCode summary comment.
  * Uses the hidden HTML marker to identify our comments.
  * This is the fallback when the DB has no record (e.g., first run after migration).
  */
@@ -860,7 +860,7 @@ function formatSummaryComment(
     lines.push('');
 
     // ── Header ────────────────────────────────────────────────────────
-    lines.push(`## 🤖 AXD Review Summary`);
+    lines.push(`## 🤖 ReviewCode Review Summary`);
     lines.push('');
 
     if (metadata) {
@@ -1028,7 +1028,7 @@ function formatSummaryComment(
         lines.push('>');
     }
 
-    lines.push(`> 🤖 Powered by **AXD** · [Configure](/.axdreview.yml) · ${timestamp}`);
+    lines.push(`> 🤖 Powered by **ReviewCode** · [Configure](/.reviewcodereview.yml) · ${timestamp}`);
 
     return lines.join('\n');
 }
@@ -1039,7 +1039,7 @@ function formatSummaryComment(
 function formatFallbackReviewBody(result: LLMReviewResponse): string {
     const lines: string[] = [];
 
-    lines.push(`## 🤖 AXD Code Review\n`);
+    lines.push(`## 🤖 ReviewCode Code Review\n`);
     lines.push(`> ⚠️ *Inline comments could not be placed on exact diff lines. Listing all issues below.*\n`);
     lines.push(`${result.summary}\n`);
 

@@ -6,7 +6,7 @@ import type { ReviewIssue, IssueSeverity } from '../types/review.types.js';
 // Label Definitions
 // ═══════════════════════════════════════════════════════════════════════
 
-const AXD_LABEL_PREFIX = 'axd:';
+const AXD_LABEL_PREFIX = 'reviewcode:';
 
 interface LabelDefinition {
     name: string;
@@ -16,29 +16,29 @@ interface LabelDefinition {
 
 const AXD_LABELS: LabelDefinition[] = [
     {
-        name: 'axd: critical',
+        name: 'reviewcode: critical',
         color: 'FF0000',
-        description: '🔴 AXD found critical issues that must be fixed',
+        description: '🔴 ReviewCode found critical issues that must be fixed',
     },
     {
-        name: 'axd: needs-work',
+        name: 'reviewcode: needs-work',
         color: 'FF6B00',
-        description: '🟠 AXD found high-severity issues requiring changes',
+        description: '🟠 ReviewCode found high-severity issues requiring changes',
     },
     {
-        name: 'axd: reviewed',
+        name: 'reviewcode: reviewed',
         color: '0075CA',
-        description: '🔵 AXD reviewed this PR',
+        description: '🔵 ReviewCode reviewed this PR',
     },
     {
-        name: 'axd: approved',
+        name: 'reviewcode: approved',
         color: '00B300',
-        description: '✅ AXD approved — no significant issues found',
+        description: '✅ ReviewCode approved — no significant issues found',
     },
     {
-        name: 'axd: low-risk',
+        name: 'reviewcode: low-risk',
         color: 'E4E669',
-        description: '🟡 AXD found only minor issues (medium/low)',
+        description: '🟡 ReviewCode found only minor issues (medium/low)',
     },
 ];
 
@@ -47,7 +47,7 @@ const AXD_LABELS: LabelDefinition[] = [
 // ═══════════════════════════════════════════════════════════════════════
 
 /**
- * Ensure all AXD labels exist in the repository.
+ * Ensure all ReviewCode labels exist in the repository.
  *
  * Creates them if missing, updates color/description if they already exist
  * but have different settings. Runs once per review — GitHub API is
@@ -102,14 +102,14 @@ export async function ensureLabelsExist(
 // ═══════════════════════════════════════════════════════════════════════
 
 /**
- * Determine which AXD label to apply based on review results.
+ * Determine which ReviewCode label to apply based on review results.
  *
  * Priority order:
- *  1. Has critical issues     → "axd: critical"
- *  2. Has high issues         → "axd: needs-work"
- *  3. Verdict is approve      → "axd: approved"
- *  4. Only medium/low issues  → "axd: low-risk"
- *  5. Fallback                → "axd: reviewed"
+ *  1. Has critical issues     → "reviewcode: critical"
+ *  2. Has high issues         → "reviewcode: needs-work"
+ *  3. Verdict is approve      → "reviewcode: approved"
+ *  4. Only medium/low issues  → "reviewcode: low-risk"
+ *  5. Fallback                → "reviewcode: reviewed"
  */
 export function determineLabelFromVerdict(
     issues: ReviewIssue[],
@@ -123,32 +123,32 @@ export function determineLabelFromVerdict(
 
     // 1. Critical issues present
     if ((severityCounts['critical'] ?? 0) > 0) {
-        return 'axd: critical';
+        return 'reviewcode: critical';
     }
 
     // 2. High issues present
     if ((severityCounts['high'] ?? 0) > 0) {
-        return 'axd: needs-work';
+        return 'reviewcode: needs-work';
     }
 
     // 3. Clean approval
     if (verdict === 'approve' && issues.length === 0) {
-        return 'axd: approved';
+        return 'reviewcode: approved';
     }
 
     // 4. Only medium/low issues
     const hasMediumOrLow = (severityCounts['medium'] ?? 0) > 0 || (severityCounts['low'] ?? 0) > 0;
     if (hasMediumOrLow && (severityCounts['critical'] ?? 0) === 0 && (severityCounts['high'] ?? 0) === 0) {
-        return 'axd: low-risk';
+        return 'reviewcode: low-risk';
     }
 
     // 5. Approved with minor issues
     if (verdict === 'approve') {
-        return 'axd: approved';
+        return 'reviewcode: approved';
     }
 
     // 6. Fallback
-    return 'axd: reviewed';
+    return 'reviewcode: reviewed';
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -156,11 +156,11 @@ export function determineLabelFromVerdict(
 // ═══════════════════════════════════════════════════════════════════════
 
 /**
- * Apply the correct AXD review label to a PR.
+ * Apply the correct ReviewCode review label to a PR.
  *
  * Steps:
- *  1. Ensure all AXD labels exist in the repo
- *  2. Remove any existing "axd:*" labels from the PR
+ *  1. Ensure all ReviewCode labels exist in the repo
+ *  2. Remove any existing "reviewcode:*" labels from the PR
  *  3. Add the correct new label based on review results
  *
  * Never throws — labels are nice-to-have. If GitHub API fails,
@@ -178,7 +178,7 @@ export async function applyReviewLabel(
         // Step 1: Ensure labels exist
         await ensureLabelsExist(octokit, owner, repo);
 
-        // Step 2: Remove existing AXD labels
+        // Step 2: Remove existing ReviewCode labels
         await removeAxdLabels(octokit, owner, repo, pullNumber);
 
         // Step 3: Determine and apply the correct label
@@ -209,7 +209,7 @@ export async function applyReviewLabel(
 // ═══════════════════════════════════════════════════════════════════════
 
 /**
- * Remove all existing "axd:*" labels from a PR.
+ * Remove all existing "reviewcode:*" labels from a PR.
  */
 async function removeAxdLabels(
     octokit: Octokit,
@@ -237,7 +237,7 @@ async function removeAxdLabels(
                     name: label.name,
                 });
 
-                logger.debug({ label: label.name, pullNumber }, 'Removed old AXD label');
+                logger.debug({ label: label.name, pullNumber }, 'Removed old ReviewCode label');
             } catch (error) {
                 const err = error as { status?: number };
                 if (err.status !== 404) {

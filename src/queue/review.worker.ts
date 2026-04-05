@@ -102,7 +102,7 @@ async function processReviewJob(job: Job<ReviewJobData>) {
             log.warn({ diffSize: rawDiff.length, limit: env.MAX_DIFF_SIZE_BYTES }, 'Diff too large');
             await postIssueComment(
                 octokit, owner, repo, data.prNumber,
-                `🤖 **AXD** — Skipping review: diff is ${(rawDiff.length / 1024).toFixed(0)}KB (limit: ${(env.MAX_DIFF_SIZE_BYTES / 1024).toFixed(0)}KB).`,
+                `🤖 **ReviewCode** — Skipping review: diff is ${(rawDiff.length / 1024).toFixed(0)}KB (limit: ${(env.MAX_DIFF_SIZE_BYTES / 1024).toFixed(0)}KB).`,
             );
             await reviewRepo.updateStatus(review.id, 'SKIPPED', {
                 summary: `Diff too large: ${rawDiff.length} bytes`,
@@ -125,7 +125,7 @@ async function processReviewJob(job: Job<ReviewJobData>) {
             log.warn({ fileCount: parsedDiff.totalFiles, limit: env.MAX_FILES_PER_REVIEW }, 'Too many files');
             await postIssueComment(
                 octokit, owner, repo, data.prNumber,
-                `🤖 **AXD** — Skipping review: PR touches ${parsedDiff.totalFiles} files (limit: ${env.MAX_FILES_PER_REVIEW}).`,
+                `🤖 **ReviewCode** — Skipping review: PR touches ${parsedDiff.totalFiles} files (limit: ${env.MAX_FILES_PER_REVIEW}).`,
             );
             await reviewRepo.updateStatus(review.id, 'SKIPPED', {
                 summary: `Too many files: ${parsedDiff.totalFiles}`,
@@ -141,7 +141,7 @@ async function processReviewJob(job: Job<ReviewJobData>) {
             log.info({ skippedFiles: skipped.length }, 'No reviewable files after filtering');
             await postIssueComment(
                 octokit, owner, repo, data.prNumber,
-                '🤖 **AXD** — No reviewable files in this PR (all files were filtered out).',
+                '🤖 **ReviewCode** — No reviewable files in this PR (all files were filtered out).',
             );
             await reviewRepo.updateStatus(review.id, 'SKIPPED', {
                 summary: 'No reviewable files after filtering',

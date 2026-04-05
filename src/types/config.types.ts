@@ -1,10 +1,10 @@
 import { z } from 'zod';
 
 // ═══════════════════════════════════════════════════════════════════════
-// .axdreview.yml — The YAML file teams drop in their repo root
+// .reviewcodereview.yml — The YAML file teams drop in their repo root
 // ═══════════════════════════════════════════════════════════════════════
 //
-// Example .axdreview.yml:
+// Example .reviewcodereview.yml:
 //
 // ```yaml
 // # What areas should the bot focus on?
@@ -39,7 +39,7 @@ import { z } from 'zod';
 //   - "nodejs"
 //
 // # Custom bot display name
-// bot_name: "AXD Bot"
+// bot_name: "ReviewCode Bot"
 //
 // # Triggers: which PR events should trigger a review?
 // review_on:
@@ -136,7 +136,7 @@ export const RepoConfigSchema = z.object({
     ]).default(['typescript', 'nodejs']),
 
     // Custom bot display name
-    bot_name: z.string().max(50).default('AXD Bot'),
+    bot_name: z.string().max(50).default('ReviewCode Bot'),
 
     // Limits
     max_files_per_review: z.number().int().positive().max(100).default(25),

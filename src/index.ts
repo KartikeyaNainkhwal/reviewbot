@@ -65,7 +65,7 @@ function main() {
                 env: env.NODE_ENV,
                 pid: process.pid,
             },
-            '🚀 AXD server started',
+            '🚀 ReviewCode server started',
         );
         logger.info('Webhook endpoint: POST /api/webhooks');
         logger.info('Health check:     GET  /health');

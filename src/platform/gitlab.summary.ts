@@ -40,7 +40,7 @@ export function generateSummaryMarkdown(
     const sha = commitSha ? `\`${commitSha.slice(0, 7)}\`` : '';
     const timestamp = new Date().toUTCString();
 
-    lines.push('## 🤖 AXD Review Summary');
+    lines.push('## 🤖 ReviewCode Review Summary');
     lines.push('');
     lines.push(`> ${verdict} · Reviewed commit ${sha} · ${timestamp}`);
     lines.push('');
@@ -116,7 +116,7 @@ export function generateSummaryMarkdown(
 
     // Footer
     lines.push('---');
-    lines.push('> 🤖 AXD Bot · AI-powered code review');
+    lines.push('> 🤖 ReviewCode Bot · AI-powered code review');
 
     return lines.join('\n');
 }

@@ -13,11 +13,11 @@ import { logger } from '../config/logger.js';
 // ─── Config file locations (checked in order) ───────────────────────────
 
 const CONFIG_FILE_PATHS = [
-    '.axdreview.yml',
-    '.axdreview.yaml',
+    '.reviewcodereview.yml',
+    '.reviewcodereview.yaml',
     '.prbot.yml',        // legacy compat
     '.prbot.yaml',       // legacy compat
-    '.github/axdreview.yml',
+    '.github/reviewcodereview.yml',
     '.github/prbot.yml', // legacy compat
 ];
 
@@ -27,11 +27,11 @@ const CONFIG_FILE_PATHS = [
 
 class ConfigService {
     /**
-     * Fetch and parse the repo's `.axdreview.yml` config.
+     * Fetch and parse the repo's `.reviewcodereview.yml` config.
      *
      * Resolution order:
-     *  1. Try fetching `.axdreview.yml` (or .yaml / .prbot.yml) from the repo at the given ref
-     *  2. If not found, check `.github/axdreview.yml`
+     *  1. Try fetching `.reviewcodereview.yml` (or .yaml / .prbot.yml) from the repo at the given ref
+     *  2. If not found, check `.github/reviewcodereview.yml`
      *  3. If no file exists, fall back to DB config (set via dashboard)
      *  4. If nothing in DB, use sensible defaults
      *
@@ -123,7 +123,7 @@ class ConfigService {
      *   - `!src/important.ts` — negation: force-include a file
      *
      * @param filename      - The file path from the diff (e.g., "src/auth/login.ts")
-     * @param ignorePatterns - Array of glob patterns from .axdreview.yml
+     * @param ignorePatterns - Array of glob patterns from .reviewcodereview.yml
      * @returns true if the file should be skipped
      */
     shouldIgnoreFile(filename: string, ignorePatterns: string[]): boolean {
@@ -149,7 +149,7 @@ class ConfigService {
     // ─── Private helpers ────────────────────────────────────────────────
 
     /**
-     * Fetch `.axdreview.yml` from the repo via GitHub API.
+     * Fetch `.reviewcodereview.yml` from the repo via GitHub API.
      *
      * Tries multiple file paths in order. Returns null if no config found.
      * Never throws — invalid/missing files return null gracefully.
@@ -193,7 +193,7 @@ class ConfigService {
             }
         }
 
-        logger.debug({ owner, repo }, 'No .axdreview.yml found, using defaults');
+        logger.debug({ owner, repo }, 'No .reviewcodereview.yml found, using defaults');
         return null;
     }
 

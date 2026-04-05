@@ -67,7 +67,7 @@ class ReviewService {
                     owner,
                     repo,
                     jobData.prNumber,
-                    '🤖 **AXD**: Skipping review — diff is too large for analysis.',
+                    '🤖 **ReviewCode**: Skipping review — diff is too large for analysis.',
                 );
                 return this.completeReview(review.id, startTime, {
                     status: 'skipped',
@@ -86,7 +86,7 @@ class ReviewService {
                     owner,
                     repo,
                     jobData.prNumber,
-                    `🤖 **AXD**: Skipping review — PR touches ${parsedDiff.totalFiles} files (limit: ${repoConfig.max_files_per_review}).`,
+                    `🤖 **ReviewCode**: Skipping review — PR touches ${parsedDiff.totalFiles} files (limit: ${repoConfig.max_files_per_review}).`,
                 );
                 return this.completeReview(review.id, startTime, {
                     status: 'skipped',

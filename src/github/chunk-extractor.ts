@@ -137,7 +137,7 @@ const PRIORITY_ORDER: Record<FilePriority, number> = {
  *
  * Steps:
  *  1. Filter out lock files, generated files, binaries, env examples
- *  1b. Filter out files matching .axdreview.yml ignore_paths globs
+ *  1b. Filter out files matching .reviewcodereview.yml ignore_paths globs
  *  2. Classify each file by priority (security > core > test > config > docs)
  *  3. Group related files (same directory / import chain)
  *  4. Split into chunks that fit within MAX_CHUNK_TOKENS
@@ -167,7 +167,7 @@ export function extractReviewableChunks(
             continue;
         }
 
-        // Skip by .axdreview.yml ignore_paths globs (via micromatch)
+        // Skip by .reviewcodereview.yml ignore_paths globs (via micromatch)
         if (ignorePatterns.length > 0 && configService.shouldIgnoreFile(file.filename, ignorePatterns)) {
             skipped.push({ filename: file.filename, reason: 'matched ignore_paths glob' });
             continue;
