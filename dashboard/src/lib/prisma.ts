@@ -10,7 +10,7 @@ function createPrismaClient(): PrismaClient {
     const pool = new Pool({
         connectionString:
             process.env.DATABASE_URL ||
-            "postgresql://axd:axd_dev@localhost:5432/axd?schema=public",
+            "postgresql://reviewcode:reviewcode_dev@localhost:5432/reviewcode?schema=public",
     });
 
     const adapter = new PrismaPg(pool);

@@ -10,15 +10,17 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         }),
     ],
     callbacks: {
-        async jwt({ token, account }) {
+        async jwt({ token, account, profile }: any) {
             if (account) {
                 token.accessToken = account.access_token;
             }
+            if (profile?.login) {
+                token.githubUsername = profile.login;
+            }
             return token;
         },
-        async session({ session, token }) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (session as any).accessToken = token.accessToken;
+        async session({ session, token }: any) {
+            (session.user as any).login = token.githubUsername;
             return session;
         }
     }
